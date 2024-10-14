@@ -19,34 +19,50 @@ func NewModel() *Model {
 		viper.GetString("apiKey"),
 	)
 
-	columns := []table.Column{
+	runningColumns := []table.Column{
 		{Title: "Name", Width: 20},
-		{Title: "Region", Width: 10},
-		{Title: "IP", Width: 15},
+		{Title: "Region", Width: 15},
+		{Title: "Public IP", Width: 15},
 		{Title: "Private IP", Width: 15},
-		{Title: "Type", Width: 15},
+		{Title: "Model", Width: 5},
+		{Title: "Bus", Width: 10},
+		{Title: "GPUs", Width: 5},
 		{Title: "vCPUs", Width: 5},
 		{Title: "Memory", Width: 10},
-		{Title: "GPUs", Width: 5},
 		{Title: "Status", Width: 10},
 	}
 
-	t := table.New(
-		table.WithColumns(columns),
+	optionColumns := []table.Column{
+		{Title: "Region", Width: 15},
+		{Title: "GPUs", Width: 5},
+		{Title: "Model", Width: 5},
+		{Title: "Bus", Width: 10},
+		{Title: "$/Hour", Width: 20},
+	}
+
+	runningTable := table.New(
+		table.WithColumns(runningColumns),
 		table.WithFocused(true),
+	)
+
+	optionTable := table.New(
+		table.WithColumns(optionColumns),
+		table.WithFocused(false),
 	)
 
 	return &Model{
 		client:          client,
-		refreshInterval: 10 * time.Second,
-		currentState:    listState,
-		previousState:   listState,
-		table:           t,
+		refreshInterval: 30 * time.Second,
+		currentState:    runningState,
+		previousState:   runningState,
+		activeTable:     &runningTable,
+		runningTable:    runningTable,
+		optionTable:     optionTable,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.refreshInstances(), m.startTimer())
+	return tea.Batch(m.refreshInstances(), m.refreshOptions(), m.startTimer())
 }
 
 func (m Model) startTimer() tea.Cmd {
@@ -61,42 +77,73 @@ func (m Model) refreshInstances() tea.Cmd {
 		if err != nil {
 			return errMsg{err}
 		}
+
+		for i, instance := range instances {
+			if parsed, err := api.ParseInstanceType(instance.InstanceType); err == nil {
+				instance.InstanceType.Specs = parsed
+				instances[i] = instance
+			}
+		}
+
 		return instancesMsg{instances}
 	}
 }
 
+func (m Model) refreshOptions() tea.Cmd {
+	return func() tea.Msg {
+		options, err := m.client.FetchInstanceOptions()
+		if err != nil {
+			return errMsg{err}
+		}
+
+		for i, option := range options {
+			if parsed, err := api.ParseOptionType(option.Type); err == nil {
+				option.Specs = parsed
+				options[i] = option
+			}
+		}
+
+		return optionsMsg{options}
+	}
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
+	// var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case errMsg:
 		m.errorMsg = msg.Error()
 		return m, nil
-	case createdVMMsg:
-		return m, m.refreshInstances()
-	case filterMsg:
-		m.filter = msg.filter
-		return m, m.applyFilter()
+	// case createdVMMsg:
+	// 	return m, m.refreshInstances()
+	// case filterMsg:
+	// 	m.filter = msg.filter
+	// 	return m, m.applyFilter()
 	case instancesMsg:
 		m.machines = msg.instances
-		m.table.SetRows(machineSliceToTableRows(m.machines))
+		m.runningTable.SetRows(machineSliceToTableRows(m.machines))
+		return m, nil
+	case optionsMsg:
+		m.options = msg.options
+		m.optionTable.SetRows(optionSliceToTableRows(m.options))
 		return m, nil
 	case timerMsg:
-		return m, tea.Batch(m.refreshInstances(), m.startTimer())
+		return m, tea.Batch(m.refreshInstances(), m.refreshOptions(), m.startTimer())
 	case tea.KeyMsg:
 		switch keypress := msg.String(); keypress {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "enter", "right", "l":
-			if m.currentState.Name == "list" {
-				m.selectedMachine = &m.machines[m.table.Cursor()]
+			if m.currentState == runningState {
+				m.selectedMachine = &m.machines[m.activeTable.Cursor()]
 				m.currentState = detailState
 			}
 		case "esc", "left", "h":
-			if m.currentState.Name == "detail" {
-				m.currentState = listState
+			if m.currentState != runningState {
+				m.currentState = runningState
+				m.activeTable = &m.runningTable
 			}
 		case "s":
-			if m.selectedMachine != nil {
+			if m.currentState == detailState {
 				program.ReleaseTerminal()
 				if err := m.SSHCmd(); err != nil {
 					fmt.Printf("SSH result: %v", err)
@@ -104,14 +151,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				program.RestoreTerminal()
 			}
 		case "n":
-			return m, m.launchCmd()
+			if m.currentState == runningState {
+				m.currentState = optionState
+				m.activeTable = &m.optionTable
+			}
+			// return m, m.optionCmd()
 			// case "ctrl+l":
 			// 	return m, m.refreshInstances()
 		}
 	}
 
 	// Let the table handle key events
-	m.table, cmd = m.table.Update(msg)
+	t, cmd := m.activeTable.Update(msg)
+	*m.activeTable = t
 	return m, cmd
 }
 
@@ -121,14 +173,19 @@ func (m Model) View() string {
 	}
 
 	// Dispatch to state's view func
-	return m.currentState.View(m)
+	switch m.currentState {
+	case runningState, optionState:
+		return tableView(m)
+	default:
+		return fmt.Sprintf("Unknown view for state: %v", m.currentState)
+	}
 }
 
-func listView(m Model) string {
+func tableView(m Model) string {
 	var b strings.Builder
 
 	b.WriteString("VM List\n\n")
-	b.WriteString(m.table.View())
+	b.WriteString(m.activeTable.View())
 	b.WriteString("\nFilter: " + m.filter + "\n" +
 		"(q) Quit, (n) New VM, (enter) Details, (/) Filter")
 
@@ -150,6 +207,43 @@ func detailView(m Model) string {
 	return b.String()
 }
 
+func optionView(m Model) string {
+	var b strings.Builder
+
+	b.WriteString("Instances Available\n\n")
+	b.WriteString(m.optionTable.View())
+	b.WriteString("\nFilter: " + m.filter + "\n" +
+		"(esc) Back, (enter) option, (/) Filter")
+
+	return b.String()
+}
+
+func (m Model) optionCmd() tea.Cmd {
+	return func() tea.Msg {
+		requested := api.InstanceOption{
+			Region: "us-south-2",
+			Specs: api.InstanceSpecs{
+				Bus:   "sxm5",
+				GPUs:  1,
+				Model: "h100",
+			},
+		}
+		options, err := m.client.FetchInstanceOptions()
+		if err != nil {
+			return errMsg{err}
+		}
+		bestOption, err := api.SelectBestInstanceOption(options, requested)
+		if err != nil {
+			return errMsg{err}
+		}
+		_, err = m.client.LaunchInstances(bestOption, 1)
+		if err != nil {
+			return errMsg{err}
+		}
+		return m.refreshInstances()
+	}
+}
+
 func (m Model) SSHCmd() error {
 	err := m.client.SSHIntoMachine(*m.selectedMachine)
 	if err != nil {
@@ -159,45 +253,50 @@ func (m Model) SSHCmd() error {
 	return nil
 }
 
-func launchView(m Model) string {
-	return ""
-}
-
-func (m Model) launchCmd() tea.Cmd {
-	return func() tea.Msg {
-		_, err := m.client.LaunchInstances(api.GPUOption{}, 1)
-		if err != nil {
-			return errMsg{err}
-		}
-		return m.refreshInstances()
-	}
-}
-
-func (m Model) applyFilter() tea.Cmd {
-	return func() tea.Msg {
-		filtered, err := m.client.ListInstances()
-		if err != nil {
-			return errMsg{err}
-		}
-		m.machines = filtered
-		m.table.SetRows(machineSliceToTableRows(m.machines))
-		return nil
-	}
-}
+// func (m Model) applyFilter() tea.Cmd {
+// 	return func() tea.Msg {
+// 		filtered, err := m.client.ListInstances()
+// 		if err != nil {
+// 			return errMsg{err}
+// 		}
+// 		m.machines = filtered
+// 		m.table.SetRows(machineSliceToTableRows(m.machines))
+// 		return nil
+// 	}
+// }
 
 func machineSliceToTableRows(machines []api.InstanceDetails) []table.Row {
 	rows := make([]table.Row, len(machines))
 	for i, machine := range machines {
+		instanceSpecs, err := api.ParseInstanceType(machine.InstanceType)
+		if err != nil {
+			instanceSpecs.Model = machine.InstanceType.Name
+		}
 		rows[i] = table.Row{
 			machine.Name,
 			machine.Region.Name,
 			machine.IP,
 			machine.PrivateIP,
-			machine.InstanceType.Name,
+			instanceSpecs.Model,
+			instanceSpecs.Bus,
+			fmt.Sprintf("%d", machine.InstanceType.Specs.GPUs),
 			fmt.Sprintf("%d", machine.InstanceType.Specs.VCPUs),
 			fmt.Sprintf("%d GiB", machine.InstanceType.Specs.MemoryGiB),
-			fmt.Sprintf("%d", machine.InstanceType.Specs.GPUs),
 			machine.Status,
+		}
+	}
+	return rows
+}
+
+func optionSliceToTableRows(options []api.InstanceOption) []table.Row {
+	rows := make([]table.Row, len(options))
+	for i, option := range options {
+		rows[i] = table.Row{
+			option.Region,
+			fmt.Sprintf("%d", option.Specs.GPUs),
+			option.Specs.Model,
+			option.Specs.Bus,
+			fmt.Sprintf("%.2f", float64(option.PriceHour)/100),
 		}
 	}
 	return rows

@@ -21,13 +21,13 @@ func listFunc(cmd *cobra.Command, args []string) {
 
 	instances, err := client.ListInstances()
 	if err != nil {
-		fmt.Printf("Error listing instances: %v", err)
+		fmt.Printf("error listing instance: %v", err)
 		return
 	}
 
 	output, err := yaml.Marshal(instances)
 	if err != nil {
-		fmt.Printf("Error marshalling instances: %v", err)
+		fmt.Printf("error marshalling instance: %v", err)
 		return
 	}
 	fmt.Println(string(output))

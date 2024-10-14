@@ -9,9 +9,9 @@ import (
 	"math"
 	"net/http"
 	"os"
-	"regexp"
+
 	"slices"
-	"strconv"
+	"strings"
 	"time"
 
 	"lambdactl/pkg/utils"
@@ -22,16 +22,18 @@ import (
 )
 
 type InstanceSpecs struct {
-	VCPUs      int `json:"vcpus" yaml:"VCPUs"`
-	MemoryGiB  int `json:"memory_gib" yaml:"MemoryGiB"`
-	StorageGiB int `json:"storage_gib" yaml:"StorageGiB"`
-	GPUs       int `json:"gpus" yaml:"GPUs"`
+	Bus        string `yaml:"Bus"`
+	GPUs       int    `json:"gpus" yaml:"GPUs"`
+	MemoryGiB  int    `json:"memory_gib" yaml:"MemoryGiB"`
+	Model      string `yaml:"Model"`
+	StorageGiB int    `json:"storage_gib" yaml:"StorageGiB"`
+	VCPUs      int    `json:"vcpus" yaml:"VCPUs"`
 }
 
 type InstanceType struct {
-	Name              string        `json:"name" yaml:"Name"`
 	Description       string        `json:"description" yaml:"Description"`
 	GPUDescription    string        `json:"gpu_description" yaml:"GPUDescription"`
+	Name              string        `json:"name" yaml:"Name"`
 	PriceCentsPerHour int           `json:"price_cents_per_hour" yaml:"PriceCentsPerHour"`
 	Specs             InstanceSpecs `json:"specs" yaml:"Specs"`
 }
@@ -60,12 +62,12 @@ type InstanceLaunchResponse struct {
 
 type InstanceDetails struct {
 	Filesystems  []string     `json:"file_system_names" yaml:"Filesystems"`
-	Name         string       `json:"name" yaml:"Name"`
 	Hostname     string       `json:"hostname" yaml:"Hostname"`
 	ID           string       `json:"id" yaml:"ID"`
 	InstanceType InstanceType `json:"instance_type" yaml:"InstanceType"`
 	IP           string       `json:"ip" yaml:"IP"`
 	IsReserved   bool         `json:"is_reserved" yaml:"IsReserved"`
+	Name         string       `json:"name" yaml:"Name"`
 	PrivateIP    string       `json:"private_ip" yaml:"PrivateIP"`
 	Region       Region       `json:"region" yaml:"Region"`
 	SSHKeys      []string     `json:"ssh_key_names" yaml:"SSHKeys"`
@@ -76,18 +78,11 @@ type InstanceListResponse struct {
 	InstanceList []InstanceDetails `json:"data" yaml:"InstanceList"`
 }
 
-type GPUSpec struct {
-	Model string `yaml:"Model"`
-	RAM   int    `yaml:"RAM"`
-	Bus   string `yaml:"Bus"`
-}
-
-type GPUOption struct {
-	Spec      GPUSpec `yaml:"Spec"`
-	Type      string  `yaml:"Type"`
-	Count     int     `yaml:"Count"`
-	PriceHour int     `yaml:"PriceHour"`
-	Region    string  `yaml:"Region"`
+type InstanceOption struct {
+	PriceHour int           `yaml:"PriceHour"`
+	Region    string        `yaml:"Region"`
+	Specs     InstanceSpecs `yaml:"Specs"`
+	Type      string        `yaml:"Type"`
 }
 
 type APIClient struct {
@@ -141,7 +136,7 @@ func (c *APIClient) MakeRequest(method, endpoint string, body interface{}) ([]by
 	return respBody, nil
 }
 
-func (c *APIClient) FetchGPUOptions() ([]GPUOption, error) {
+func (c *APIClient) FetchInstanceOptions() ([]InstanceOption, error) {
 	resp, err := c.MakeRequest("GET", "instance-types", nil)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving instance types: %v", err)
@@ -153,67 +148,111 @@ func (c *APIClient) FetchGPUOptions() ([]GPUOption, error) {
 		return nil, fmt.Errorf("error unmarshaling response data: %v", err)
 	}
 
-	gpuOptions := []GPUOption{}
+	instanceOptions := []InstanceOption{}
 	for _, data := range instanceTypes.InstanceTypes {
 		for _, region := range data.RegionsAvailable {
-			gpuSpec, err := parseGPUString(data.InstanceType.Description)
+			instanceSpecs, err := ParseInstanceType(data.InstanceType)
 			if err != nil {
 				continue
 			}
-			gpuOptions = append(gpuOptions, GPUOption{
-				Spec:      gpuSpec,
-				Type:      data.InstanceType.Name,
-				Count:     data.InstanceType.Specs.GPUs,
+
+			instanceOption := InstanceOption{
 				PriceHour: data.InstanceType.PriceCentsPerHour,
 				Region:    region.Name,
-			})
+				Specs:     instanceSpecs,
+				Type:      data.InstanceType.Name,
+			}
+			instanceOptions = append(instanceOptions, instanceOption)
 		}
 	}
 
-	return gpuOptions, nil
+	return instanceOptions, nil
 }
 
-func parseGPUString(input string) (GPUSpec, error) {
-	re := regexp.MustCompile(`(\d+)x\s+(\w+)\s+\((\d+)\s+GB(?:\s+(\w+))?\)`)
-	matches := re.FindStringSubmatch(input)
+func ParseInstanceType(input InstanceType) (InstanceSpecs, error) {
+	specs := input.Specs
+	specs.Bus = "pcie" // Default
 
-	if len(matches) < 4 {
-		return GPUSpec{}, fmt.Errorf("invalid GPU string format")
+	fields := strings.Split(input.Name, "_")
+	for i, field := range fields {
+		switch i {
+		case 0:
+			if field == "cpu" {
+				specs.Model = "cpu"
+			}
+		case 2:
+			specs.Model = field
+		case 3:
+			specs.Bus = field
+		}
 	}
 
-	ram, err := strconv.Atoi(matches[3])
-	if err != nil {
-		return GPUSpec{}, fmt.Errorf("invalid RAM: %v", err)
-	}
-
-	bus := "PCIe" // Default to PCIe if not specified
-	if len(matches) > 4 && matches[4] != "" {
-		bus = matches[4]
-	}
-
-	return GPUSpec{
-		Model: matches[2],
-		RAM:   ram,
-		Bus:   bus,
-	}, nil
+	return specs, nil
 }
 
-func SelectBestGPUOption(options []GPUOption, requested GPUOption) (GPUOption, error) {
-	var bestOption GPUOption
+func ParseOptionType(input string) (InstanceSpecs, error) {
+	specs := InstanceSpecs{
+		Bus: "pcie", // Default
+	}
+
+	fields := strings.Split(input, "_")
+	for i, field := range fields {
+		switch i {
+		case 0:
+			if field == "cpu" {
+				specs.Model = "cpu"
+			}
+		case 2:
+			specs.Model = field
+		case 3:
+			specs.Bus = field
+		}
+	}
+
+	return specs, nil
+}
+
+// func ParseGPUString(input string) (GPUSpec, error) {
+// 	re := regexp.MustCompile(`(\d+)x\s+(\w+)\s+\((\d+)\s+GB(?:\s+(\w+))?\)`)
+// 	matches := re.FindStringSubmatch(input)
+
+// 	if len(matches) < 4 {
+// 		return GPUSpec{}, fmt.Errorf("invalid GPU string format")
+// 	}
+
+// 	ram, err := strconv.Atoi(matches[3])
+// 	if err != nil {
+// 		return GPUSpec{}, fmt.Errorf("invalid RAM: %v", err)
+// 	}
+
+// 	bus := "PCIe" // Default to PCIe if not specified
+// 	if len(matches) > 4 && matches[4] != "" {
+// 		bus = matches[4]
+// 	}
+
+// 	return GPUSpec{
+// 		Model: matches[2],
+// 		RAM:   ram,
+// 		Bus:   bus,
+// 	}, nil
+// }
+
+func SelectBestInstanceOption(options []InstanceOption, requested InstanceOption) (InstanceOption, error) {
+	var bestOption InstanceOption
 	lowestCost := math.MaxInt
 
 	for _, option := range options {
 		// Check if the option meets the minimum requirements
-		if option.Spec.RAM < requested.Spec.RAM || option.Count < requested.Count {
-			continue
-		}
+		// if option.Spec.RAM < requested.Spec.RAM || option.Count < requested.Count {
+		// 	continue
+		// }
 
 		// Check model and bus only if they are specified
-		if requested.Spec.Model != "" && option.Spec.Model != requested.Spec.Model {
+		if requested.Specs.Model != "" && option.Specs.Model != requested.Specs.Model {
 			continue
 		}
 
-		if requested.Spec.Bus != "" && option.Spec.Bus != requested.Spec.Bus {
+		if requested.Specs.Bus != "" && option.Specs.Bus != requested.Specs.Bus {
 			continue
 		}
 
@@ -230,13 +269,13 @@ func SelectBestGPUOption(options []GPUOption, requested GPUOption) (GPUOption, e
 	}
 
 	if bestOption.Type == "" {
-		return GPUOption{}, errors.New("no suitable GPU option found")
+		return InstanceOption{}, errors.New("no suitable GPU option found")
 	}
 
 	return bestOption, nil
 }
 
-func (c *APIClient) LaunchInstances(gpuOption GPUOption, quantity int) (InstanceLaunchData, error) {
+func (c *APIClient) LaunchInstances(instanceOption InstanceOption, quantity int) (InstanceLaunchData, error) {
 	var sshKeyNames []string
 	if err := viper.UnmarshalKey("sshKeyNames", &sshKeyNames); err != nil || sshKeyNames == nil {
 		sshKeyNames = []string{"AAP"} // Fallback key
@@ -246,8 +285,8 @@ func (c *APIClient) LaunchInstances(gpuOption GPUOption, quantity int) (Instance
 	}
 
 	data := map[string]interface{}{
-		"region_name":        gpuOption.Region,
-		"instance_type_name": gpuOption.Type,
+		"region_name":        instanceOption.Region,
+		"instance_type_name": instanceOption.Type,
 		"ssh_key_names":      sshKeyNames,
 		"quantity":           quantity,
 	}
@@ -266,7 +305,6 @@ func (c *APIClient) LaunchInstances(gpuOption GPUOption, quantity int) (Instance
 	return launchResponse.InstanceLaunches, nil
 }
 
-// Poll the API to check if the instance(s) are ready (active)
 func (c *APIClient) WaitForInstances(instancesLaunched InstanceLaunchData) (map[string]InstanceDetails, error) {
 	var myInstances = map[string]InstanceDetails{}
 	for {
@@ -292,7 +330,7 @@ func (c *APIClient) WaitForInstances(instancesLaunched InstanceLaunchData) (map[
 			return myInstances, nil
 		}
 
-		time.Sleep(10 * time.Second) // Poll every 10 seconds
+		time.Sleep(10 * time.Second)
 	}
 }
 
@@ -312,25 +350,22 @@ func (c *APIClient) ListInstances() ([]InstanceDetails, error) {
 }
 
 func (c *APIClient) SSHIntoMachine(instance InstanceDetails) error {
-	// Get private key from viper config or fallback to default
 	privateKeyFile := os.ExpandEnv(viper.GetString("privateKey"))
 	if privateKeyFile == "" {
 		privateKeyFile = os.ExpandEnv("$HOME/.ssh/id_rsa")
 	}
 
-	// Read private key file
 	privateKey, err := os.ReadFile(privateKeyFile)
 	if err != nil {
 		return fmt.Errorf("failed to read private key: %v", err)
 	}
 
-	// Parse the private key
 	signer, err := ssh.ParsePrivateKey(privateKey)
 	if err != nil {
 		return fmt.Errorf("failed to parse private key: %v", err)
 	}
 
-	// Build SSH client configuration
+	// TODO: Get username from config or use default
 	config := &ssh.ClientConfig{
 		User: "ubuntu",
 		Auth: []ssh.AuthMethod{
@@ -352,6 +387,10 @@ func (c *APIClient) SSHIntoMachine(instance InstanceDetails) error {
 	}
 	defer session.Close()
 
+	session.Stdout = os.Stdout
+	session.Stderr = os.Stderr
+	session.Stdin = os.Stdin
+
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
 		return fmt.Errorf("failed to make terminal raw: %v", err)
@@ -368,16 +407,7 @@ func (c *APIClient) SSHIntoMachine(instance InstanceDetails) error {
 		term = "xterm-256color"
 	}
 
-	// Handle SSH session interaction
-	session.Stdout = os.Stdout
-	session.Stderr = os.Stderr
-	session.Stdin = os.Stdin
-
-	modes := ssh.TerminalModes{
-		ssh.ECHO: 1,
-	}
-
-	if err = session.RequestPty(term, h, w, modes); err != nil {
+	if err = session.RequestPty(term, h, w, ssh.TerminalModes{}); err != nil {
 		return fmt.Errorf("failed to request PTY on remote session: %v", err)
 	}
 

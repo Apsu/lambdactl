@@ -7,25 +7,24 @@ import (
 	"github.com/charmbracelet/bubbles/table"
 )
 
-type State struct {
-	Name string
-	View func(Model) string
-}
-
-var (
-	listState   = State{Name: "list", View: listView}
-	detailState = State{Name: "detail", View: detailView}
-	launchState = State{Name: "launch", View: launchView}
+const (
+	runningState = "running"
+	detailState  = "details"
+	optionState  = "options"
 )
 
 type Model struct {
 	client          *api.APIClient
 	machines        []api.InstanceDetails
 	selectedMachine *api.InstanceDetails
+	options         []api.InstanceOption
+	selectedOption  *api.InstanceOption
 	filter          string
-	table           table.Model
-	currentState    State
-	previousState   State
+	activeTable     *table.Model
+	runningTable    table.Model
+	optionTable     table.Model
+	currentState    string
+	previousState   string
 	errorMsg        string
 	refreshInterval time.Duration
 }
@@ -46,6 +45,10 @@ type createdVMMsg struct{}
 
 type instancesMsg struct {
 	instances []api.InstanceDetails
+}
+
+type optionsMsg struct {
+	options []api.InstanceOption
 }
 
 type timerMsg struct{}
