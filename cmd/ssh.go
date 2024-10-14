@@ -1,36 +1,31 @@
 package cmd
 
 import (
-	"fmt"
-
-	"lambdactl/pkg/api"
+	"lambdactl/pkg/sshlib"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var sshCmd = &cobra.Command{
 	Use:   "ssh",
 	Short: "SSH into an instance",
-	RunE:   sshFunc,
+	RunE:  sshFunc,
 }
 
 func sshFunc(cmd *cobra.Command, args []string) error {
-	client := api.NewAPIClient(viper.GetString("apiUrl"), viper.GetString("apiKey"))
-
-	err := client.SSHIntoMachine(api.InstanceDetails{
-		IP: viper.GetString("ip"),
-	})
-	if err != nil {
-		return fmt.Errorf("error connecting to instance: %v", err)
-	}
-	return nil
+	host, _ := cmd.Flags().GetString("host")
+	port, _ := cmd.Flags().GetInt("port")
+	user, _ := cmd.Flags().GetString("user")
+	keyName, _ := cmd.Flags().GetString("keyName")
+	return sshlib.NewShell(host, port, user, keyName)
 }
 
 func init() {
 	rootCmd.AddCommand(sshCmd)
 
-	sshCmd.Flags().String("ip", "", "Instance IP")
-	viper.BindPFlag("ip", sshCmd.Flags().Lookup("ip"))
-	sshCmd.MarkFlagRequired("ip")
+	sshCmd.MarkFlagRequired("host")
+	sshCmd.Flags().String("host", "", "Hostname or IP")
+	sshCmd.Flags().Int("port", 22, "Remote port")
+	sshCmd.Flags().String("user", "ubuntu", "Remote user")
+	sshCmd.Flags().String("keyName", "id_rsa", "SSH Key Name")
 }

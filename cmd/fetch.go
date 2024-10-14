@@ -12,7 +12,7 @@ import (
 
 var fetchCmd = &cobra.Command{
 	Use:   "fetch",
-	Short: "Fetch all instances with availability",
+	Short: "Fetch instance types available to launch",
 	Run:   fetchFunc,
 }
 

@@ -1,4 +1,3 @@
-data-dir: {{ .RKE2DataDir }}
 external-ip: {{ .PublicIP }}
 node-name: {{ .NodeName }}
 server: https://{{ .ClusterIP }}:9345

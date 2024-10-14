@@ -9,8 +9,8 @@ import (
 
 const (
 	runningState = "running"
-	detailState  = "details"
-	optionState  = "options"
+	detailState  = "detail"
+	optionState  = "option"
 )
 
 type Model struct {
@@ -20,7 +20,6 @@ type Model struct {
 	options         []api.InstanceOption
 	selectedOption  *api.InstanceOption
 	filter          string
-	activeTable     *table.Model
 	runningTable    table.Model
 	optionTable     table.Model
 	currentState    string

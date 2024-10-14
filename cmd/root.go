@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"embed"
 	"fmt"
 	"os"
 
@@ -9,6 +10,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
+
+var lambdaFS embed.FS
 
 var cfgFile string
 
@@ -20,7 +23,9 @@ var rootCmd = &cobra.Command{
 	},
 }
 
-func Execute() {
+func Execute(fs embed.FS) {
+	lambdaFS = fs
+
 	initConfig()
 	checkRequiredConfig()
 

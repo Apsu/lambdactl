@@ -8,7 +8,6 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"os"
 
 	"slices"
 	"strings"
@@ -17,8 +16,6 @@ import (
 	"lambdactl/pkg/utils"
 
 	"github.com/spf13/viper"
-	"golang.org/x/crypto/ssh"
-	"golang.org/x/term"
 )
 
 type InstanceSpecs struct {
@@ -347,73 +344,4 @@ func (c *APIClient) ListInstances() ([]InstanceDetails, error) {
 	}
 
 	return allInstances.InstanceList, nil
-}
-
-func (c *APIClient) SSHIntoMachine(instance InstanceDetails) error {
-	privateKeyFile := os.ExpandEnv(viper.GetString("privateKey"))
-	if privateKeyFile == "" {
-		privateKeyFile = os.ExpandEnv("$HOME/.ssh/id_rsa")
-	}
-
-	privateKey, err := os.ReadFile(privateKeyFile)
-	if err != nil {
-		return fmt.Errorf("failed to read private key: %v", err)
-	}
-
-	signer, err := ssh.ParsePrivateKey(privateKey)
-	if err != nil {
-		return fmt.Errorf("failed to parse private key: %v", err)
-	}
-
-	// TODO: Get username from config or use default
-	config := &ssh.ClientConfig{
-		User: "ubuntu",
-		Auth: []ssh.AuthMethod{
-			ssh.PublicKeys(signer),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         5 * time.Second,
-	}
-
-	conn, err := ssh.Dial("tcp", fmt.Sprintf("%s:22", instance.IP), config)
-	if err != nil {
-		return fmt.Errorf("failed to connect: %v", err)
-	}
-	defer conn.Close()
-
-	session, err := conn.NewSession()
-	if err != nil {
-		return fmt.Errorf("failed to create session: %v", err)
-	}
-	defer session.Close()
-
-	session.Stdout = os.Stdout
-	session.Stderr = os.Stderr
-	session.Stdin = os.Stdin
-
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil {
-		return fmt.Errorf("failed to make terminal raw: %v", err)
-	}
-	defer term.Restore(int(os.Stdin.Fd()), oldState)
-
-	w, h, err := term.GetSize(int(os.Stdin.Fd()))
-	if err != nil {
-		return fmt.Errorf("failed to get terminal size: %v", err)
-	}
-
-	term := os.Getenv("TERM")
-	if term == "" {
-		term = "xterm-256color"
-	}
-
-	if err = session.RequestPty(term, h, w, ssh.TerminalModes{}); err != nil {
-		return fmt.Errorf("failed to request PTY on remote session: %v", err)
-	}
-
-	if err = session.Shell(); err != nil {
-		return fmt.Errorf("failed to launch remote shell: %v", err)
-	}
-
-	return session.Wait()
 }

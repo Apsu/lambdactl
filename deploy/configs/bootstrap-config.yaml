@@ -1,5 +1,4 @@
 cni: cilium
-data-dir: {{ .RKE2DataDir }}
 disable:
 - rke2-canal
 - rke2-ingress-nginx

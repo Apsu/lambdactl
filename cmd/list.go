@@ -12,7 +12,7 @@ import (
 
 var listCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List all instances",
+	Short: "List all launched instances",
 	Run:   listFunc,
 }
 
@@ -23,6 +23,14 @@ func listFunc(cmd *cobra.Command, args []string) {
 	if err != nil {
 		fmt.Printf("error listing instance: %v", err)
 		return
+	}
+
+	// Update some specs from type
+	for index, instance := range instances {
+		instanceSpecs, err := api.ParseInstanceType(instance.InstanceType)
+		if err == nil {
+			instances[index].InstanceType.Specs = instanceSpecs
+		}
 	}
 
 	output, err := yaml.Marshal(instances)
