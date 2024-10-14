@@ -373,7 +373,11 @@ func (c *APIClient) SSHIntoMachine(instance InstanceDetails) error {
 	session.Stderr = os.Stderr
 	session.Stdin = os.Stdin
 
-	if err = session.RequestPty(term, h, w, ssh.TerminalModes{}); err != nil {
+	modes := ssh.TerminalModes{
+		ssh.ECHO: 1,
+	}
+
+	if err = session.RequestPty(term, h, w, modes); err != nil {
 		return fmt.Errorf("failed to request PTY on remote session: %v", err)
 	}
 

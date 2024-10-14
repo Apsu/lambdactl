@@ -16,16 +16,8 @@ var rootCmd = &cobra.Command{
 	Use:   "lambdactl",
 	Short: "A CLI for managing Lambda instances",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runBubbleTeaUI()
+		return ui.Start()
 	},
-}
-
-func runBubbleTeaUI() error {
-	_, err := ui.Start()
-	if err != nil {
-		return fmt.Errorf("error running program: %v", err)
-	}
-	return nil
 }
 
 func Execute() {
@@ -75,7 +67,7 @@ func checkRequiredConfig() {
 			missingKeys = append(missingKeys, key)
 		}
 	}
-	
+
 	if len(missingKeys) > 0 {
 		fmt.Printf("Missing required configuration keys: %v\n", missingKeys)
 		os.Exit(1)

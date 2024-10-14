@@ -6,29 +6,18 @@ import (
 	"time"
 
 	"lambdactl/pkg/api"
-	// "lambdactl/pkg/utils"
-	"gopkg.in/yaml.v3"
 
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
-	// "github.com/charmbracelet/lipgloss"
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
-type Model struct {
-	client          *api.APIClient
-	machines        []api.InstanceDetails
-	selectedMachine *api.InstanceDetails
-	filter          string
-	table           table.Model
-	currentView     string
-	previousView    string
-	errorMsg        string
-	refreshInterval time.Duration
-}
-
-func NewModel() Model {
-	client := api.NewAPIClient(viper.GetString("apiUrl"), viper.GetString("apiKey"))
+func NewModel() *Model {
+	client := api.NewAPIClient(
+		viper.GetString("apiUrl"),
+		viper.GetString("apiKey"),
+	)
 
 	columns := []table.Column{
 		{Title: "Name", Width: 20},
@@ -47,37 +36,14 @@ func NewModel() Model {
 		table.WithFocused(true),
 	)
 
-	return Model{
+	return &Model{
 		client:          client,
 		refreshInterval: 10 * time.Second,
-		currentView:     "list",
+		currentState:    listState,
+		previousState:   listState,
 		table:           t,
 	}
 }
-
-type errMsg struct {
-	err error
-}
-
-func (e errMsg) Error() string {
-	return e.err.Error()
-}
-
-type filterMsg struct {
-	filter string
-}
-
-type createdVMMsg struct{}
-
-type instancesMsg struct {
-	instances []api.InstanceDetails
-}
-
-type sshCompleteMsg struct {
-	err error
-}
-
-type timerMsg struct{}
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.refreshInstances(), m.startTimer())
@@ -104,18 +70,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case errMsg:
 		m.errorMsg = msg.Error()
-	// case createdVMMsg:
-	// 	return m, m.refreshInstances()
-	// case filterMsg:
-	// 	m.filter = msg.filter
-	// 	return m, m.applyFilter()
+		return m, nil
+	case createdVMMsg:
+		return m, m.refreshInstances()
+	case filterMsg:
+		m.filter = msg.filter
+		return m, m.applyFilter()
 	case instancesMsg:
 		m.machines = msg.instances
 		m.table.SetRows(machineSliceToTableRows(m.machines))
 		return m, nil
-	// case sshCompleteMsg:
-	// 	m.currentView = m.previousView
-	// 	return m, nil
 	case timerMsg:
 		return m, tea.Batch(m.refreshInstances(), m.startTimer())
 	case tea.KeyMsg:
@@ -123,23 +87,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "enter", "right", "l":
-			if m.currentView == "list" {
+			if m.currentState.Name == "list" {
 				m.selectedMachine = &m.machines[m.table.Cursor()]
-				m.currentView = "details"
+				m.currentState = detailState
 			}
 		case "esc", "left", "h":
-			if m.currentView == "details" {
-				m.currentView = "list"
+			if m.currentState.Name == "detail" {
+				m.currentState = listState
 			}
-			// case "s":
-			// 	if m.selectedMachine != nil {
-			// 		m.previousView = m.currentView
-			// 		m.currentView = "ssh"
-			// 		return m, m.StartSSHSession()
-			// 	}
-			// 	return m, nil
-			// case "n":
-			// 	return m, m.createVM()
+		case "s":
+			if m.selectedMachine != nil {
+				program.ReleaseTerminal()
+				if err := m.SSHCmd(); err != nil {
+					fmt.Printf("SSH result: %v", err)
+				}
+				program.RestoreTerminal()
+			}
+		case "n":
+			return m, m.launchCmd()
 			// case "ctrl+l":
 			// 	return m, m.refreshInstances()
 		}
@@ -155,20 +120,11 @@ func (m Model) View() string {
 		return "Error: " + m.errorMsg
 	}
 
-	// Apply the appropriate view rendering
-	switch m.currentView {
-	case "list":
-		return m.listView()
-	case "details":
-		return m.detailView()
-	case "ssh":
-		return "SSH session in progress"
-	default:
-		return "Unknown View"
-	}
+	// Dispatch to state's view func
+	return m.currentState.View(m)
 }
 
-func (m Model) listView() string {
+func listView(m Model) string {
 	var b strings.Builder
 
 	b.WriteString("VM List\n\n")
@@ -179,35 +135,41 @@ func (m Model) listView() string {
 	return b.String()
 }
 
-func (m Model) detailView() string {
+func detailView(m Model) string {
 	var b strings.Builder
+
+	machineYAML, err := yaml.Marshal(m.selectedMachine)
+	if err != nil {
+		return fmt.Sprintf("error marshalling YAML: %v", err)
+	}
+
 	b.WriteString("VM Details\n\n")
-	// Marshal machine to YAML to pretty print
-	machineYAML, _ := yaml.Marshal(m.selectedMachine)
 	b.WriteString(string(machineYAML))
-	b.WriteString("\n(b) Back, (s) SSH")
+	b.WriteString("\n(esc) Back, (s) SSH")
 
 	return b.String()
 }
 
-func (m Model) createVM() tea.Cmd {
+func (m Model) SSHCmd() error {
+	err := m.client.SSHIntoMachine(*m.selectedMachine)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func launchView(m Model) string {
+	return ""
+}
+
+func (m Model) launchCmd() tea.Cmd {
 	return func() tea.Msg {
 		_, err := m.client.LaunchInstances(api.GPUOption{}, 1)
 		if err != nil {
 			return errMsg{err}
 		}
 		return m.refreshInstances()
-	}
-}
-
-func (m Model) StartSSHSession() tea.Cmd {
-	return func() tea.Msg {
-		err := m.client.SSHIntoMachine(*m.selectedMachine)
-		if err != nil {
-			return sshCompleteMsg{err}
-		}
-
-		return sshCompleteMsg{}
 	}
 }
 
@@ -241,7 +203,14 @@ func machineSliceToTableRows(machines []api.InstanceDetails) []table.Row {
 	return rows
 }
 
-func Start() (tea.Model, error) {
-	p := tea.NewProgram(NewModel(), tea.WithAltScreen())
-	return p.Run()
+// Global so we can manipulate terminal/stdin reader for SSH
+var program *tea.Program
+
+func Start() error {
+	program = tea.NewProgram(NewModel(), tea.WithAltScreen())
+	_, err := program.Run()
+	if err != nil {
+		return fmt.Errorf("error running program: %v", err)
+	}
+	return nil
 }
