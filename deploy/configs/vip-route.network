@@ -1,0 +1,4 @@
+
+[Route]
+Destination=$API_IP/$API_CIDR
+Gateway=0.0.0.0

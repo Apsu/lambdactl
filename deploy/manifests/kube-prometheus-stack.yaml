@@ -1,0 +1,20 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: kube-prometheus-stack
+  namespace: kube-system
+spec:
+  chart: kube-prometheus-stack
+  createNamespace: true
+  repo: https://prometheus-community.github.io/helm-charts
+  targetNamespace: monitoring-system
+  valuesContent: |-
+    prometheus:
+      prometheusSpec:
+        serviceMonitorSelectorNilUsesHelmValues: false
+    grafana:
+      grafana.ini:
+        server:
+          root_url: "%(protocol)s://%(domain)s:%(http_port)s/grafana/"
+          serve_from_sub_path: true
+  version: 62.7.0

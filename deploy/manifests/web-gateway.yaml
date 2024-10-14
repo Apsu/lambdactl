@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: web-gateway-tls
+  namespace: default
+type: kubernetes.io/tls
+data:
+  tls.crt: $TLS_CERT
+  tls.key: $TLS_KEY
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: web-gateway
+spec:
+  gatewayClassName: cilium
+  listeners:
+  - name: web-gw
+    hostname: $PUBLIC_IP
+    protocol: HTTPS
+    port: 443
+    allowedRoutes:
+      namespaces:
+        from: All
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: web-gateway-tls

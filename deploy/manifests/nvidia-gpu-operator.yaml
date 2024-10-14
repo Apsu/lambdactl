@@ -1,0 +1,43 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: gpu-operator
+  namespace: kube-system
+spec:
+  targetNamespace: gpu-operator
+  createNamespace: true
+  repo: https://helm.ngc.nvidia.com/nvidia
+  chart: gpu-operator
+  version: 24.6.1
+  valuesContent: |-
+    validator:
+      driver:
+        env:
+          - name: DISABLE_DEV_CHAR_SYMLINK_CREATION
+            value: "true"
+    driver:
+      upgradePolicy:
+        autoUpgrade: false
+      useOpenKernelModules: true
+      version: "550.90.07"
+    toolkit:
+      env:
+        - name: CONTAINERD_CONFIG
+          value: /var/lib/rancher/rke2/agent/etc/containerd/config.toml.tmpl
+        - name: CONTAINERD_SOCKET
+          value: /run/k3s/containerd/containerd.sock
+        - name: CONTAINERD_RUNTIME_CLASS
+          value: nvidia
+        - name: CONTAINERD_SET_AS_DEFAULT
+          value: "true"
+        - name: ACCEPT_NVIDIA_VISIBLE_DEVICES_ENVVAR_WHEN_UNPRIVILEGED
+          value: "false"
+        - name: ACCEPT_NVIDIA_VISIBLE_DEVICES_AS_VOLUME_MOUNTS
+          value: "true"
+    devicePlugin:
+      env:
+        - name: DEVICE_LIST_STRATEGY
+          value: volume-mounts
+    dcgmExporter:
+      serviceMonitor:
+        enabled: true
