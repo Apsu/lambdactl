@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,40 +23,43 @@ func NewModel() *Model {
 
 	runningColumns := []table.Column{
 		{Title: "Name", Width: 20},
-		{Title: "Region", Width: 15},
+		{Title: "Region", Width: 20},
 		{Title: "Public IP", Width: 15},
 		{Title: "Private IP", Width: 15},
-		{Title: "Model", Width: 5},
-		{Title: "Bus", Width: 10},
+		{Title: "Model", Width: 25},
 		{Title: "GPUs", Width: 5},
 		{Title: "vCPUs", Width: 5},
-		{Title: "Memory", Width: 10},
+		{Title: "Memory", Width: 8},
+		{Title: "Storage", Width: 10},
 		{Title: "Status", Width: 10},
 	}
 
 	optionColumns := []table.Column{
-		{Title: "Region", Width: 15},
+		{Title: "Region", Width: 20},
+		{Title: "Model", Width: 25},
 		{Title: "GPUs", Width: 5},
-		{Title: "Model", Width: 5},
-		{Title: "Bus", Width: 10},
-		{Title: "$/Hour", Width: 20},
+		{Title: "vCPUs", Width: 5},
+		{Title: "Memory", Width: 8},
+		{Title: "Storage", Width: 10},
+		{Title: "$/Hour", Width: 10},
 	}
 
 	runningTable := table.New(
 		table.WithColumns(runningColumns),
 		table.WithFocused(true),
+		table.WithHeight(20),
 	)
 
 	optionTable := table.New(
 		table.WithColumns(optionColumns),
 		table.WithFocused(false),
+		table.WithHeight(20),
 	)
 
 	return &Model{
 		client:          client,
 		refreshInterval: 5 * time.Second,
 		currentState:    runningState,
-		previousState:   runningState,
 		runningTable:    runningTable,
 		optionTable:     optionTable,
 	}
@@ -78,13 +82,6 @@ func (m Model) refreshInstances() tea.Cmd {
 			return errMsg{err}
 		}
 
-		for i, instance := range instances {
-			if parsed, err := api.ParseInstanceType(instance.InstanceType); err == nil {
-				instance.InstanceType.Specs = parsed
-				instances[i] = instance
-			}
-		}
-
 		return instancesMsg{instances}
 	}
 }
@@ -94,13 +91,6 @@ func (m Model) refreshOptions() tea.Cmd {
 		options, err := m.client.FetchInstanceOptions()
 		if err != nil {
 			return errMsg{err}
-		}
-
-		for i, option := range options {
-			if parsed, err := api.ParseOptionType(option.Type); err == nil {
-				option.Specs = parsed
-				options[i] = option
-			}
 		}
 
 		return optionsMsg{options}
@@ -115,6 +105,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateOptionState(msg)
 	case detailState:
 		return m.updateDetailState(msg)
+	case launchState:
+		return m.updateLaunchState(msg)
 	default:
 		return m, nil
 	}
@@ -135,12 +127,13 @@ func (m Model) updateRunningState(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch keypress := msg.String(); keypress {
 		case "q", "ctrl+c":
 			return m, tea.Quit
-		case "enter", "right", "l":
+		case "enter":
 			m.selectedMachine = &m.machines[m.runningTable.Cursor()]
 			m.currentState = detailState
-		case "n":
+		case "tab":
 			m.currentState = optionState
 			m.optionTable.Focus()
+			return m, m.refreshOptions()
 		}
 	}
 
@@ -158,17 +151,21 @@ func (m Model) updateOptionState(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.options = msg.options
 		m.optionTable.SetRows(optionSliceToTableRows(m.options))
 		return m, nil
-	case timerMsg:
-		return m, tea.Batch(m.refreshOptions(), m.startTimer())
+	// case timerMsg:
+	// 	return m, tea.Batch(m.refreshInstances(), m.startTimer())
 	case tea.KeyMsg:
 		switch keypress := msg.String(); keypress {
 		case "q", "ctrl+c":
 			return m, tea.Quit
-		// TODO: Launch VM on Enter?
-		// case "enter", "right", "l":
-		case "esc", "left", "h":
+		case "tab":
 			m.currentState = runningState
 			m.runningTable.Focus()
+			return m, tea.Batch(m.refreshInstances(), m.startTimer())
+		case "enter":
+			m.currentState = launchState
+			m.selectedOption = &m.options[m.optionTable.Cursor()]
+		case "r", "ctrl+l":
+			return m, m.refreshOptions()
 		}
 	}
 
@@ -183,17 +180,35 @@ func (m Model) updateDetailState(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch keypress := msg.String(); keypress {
 		case "q", "ctrl+c":
 			return m, tea.Quit
-		case "esc", "left", "h":
+		case "esc":
 			m.currentState = runningState
 			m.runningTable.Focus()
+			return m, tea.Batch(m.refreshInstances(), m.startTimer())
 		case "s":
-			if m.currentState == detailState {
-				program.ReleaseTerminal()
-				if err := m.SSHCmd(); err != nil {
-					fmt.Printf("SSH result: %v", err)
-				}
-				program.RestoreTerminal()
-			}
+			program.ReleaseTerminal()
+			_ = m.SSHCmd()
+			program.RestoreTerminal()
+			return m, func() tea.Msg { return tea.EnterAltScreen() }
+		}
+	}
+
+	return m, nil
+}
+
+func (m Model) updateLaunchState(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch keypress := msg.String(); keypress {
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		case "esc":
+			m.currentState = optionState
+			m.optionTable.Focus()
+		case "l":
+			m.selectedOption = &m.options[m.optionTable.Cursor()]
+			m.currentState = runningState
+			m.runningTable.Focus()
+			return m, tea.Batch(m.refreshInstances(), m.launchCmd(), m.startTimer())
 		}
 	}
 
@@ -213,6 +228,8 @@ func (m Model) View() string {
 		return optionView(m)
 	case detailState:
 		return detailView(m)
+	case launchState:
+		return launchView(m)
 	default:
 		return fmt.Sprintf("Unknown view for state: %v", m.currentState)
 	}
@@ -223,9 +240,7 @@ func runningView(m Model) string {
 
 	b.WriteString("VM List\n\n")
 	b.WriteString(m.runningTable.View())
-	b.WriteString("\nFilter: " + m.filter + "\n" +
-		"(q) Quit, (n) New VM, (enter) Details, (/) Filter")
-
+	b.WriteString("\n\n(q) Quit (enter) View Details (tab) Launch Options")
 	return b.String()
 }
 
@@ -234,11 +249,11 @@ func optionView(m Model) string {
 
 	b.WriteString("Instances Available\n\n")
 	b.WriteString(m.optionTable.View())
-	b.WriteString("\nFilter: " + m.filter + "\n" +
-		"(esc) Back, (enter) option, (/) Filter")
+	b.WriteString("\n\n(q) Quit (enter) View Option (tab) Running Instances (r) Refresh Options")
 
 	return b.String()
 }
+
 func detailView(m Model) string {
 	var b strings.Builder
 
@@ -249,30 +264,29 @@ func detailView(m Model) string {
 
 	b.WriteString("VM Details\n\n")
 	b.WriteString(string(machineYAML))
-	b.WriteString("\n(esc) Back, (s) SSH")
+	b.WriteString("\n\n(q) Quit (esc) Back (s) SSH")
 
 	return b.String()
 }
 
-func (m Model) optionCmd() tea.Cmd {
+func launchView(m Model) string {
+	var b strings.Builder
+
+	machineYAML, err := yaml.Marshal(m.selectedOption)
+	if err != nil {
+		return fmt.Sprintf("error marshalling YAML: %v", err)
+	}
+
+	b.WriteString("Launch this option?\n\n")
+	b.WriteString(string(machineYAML))
+	b.WriteString("\n\n(q) Quit (esc) Back (l) Launch")
+
+	return b.String()
+}
+
+func (m Model) launchCmd() tea.Cmd {
 	return func() tea.Msg {
-		requested := api.InstanceOption{
-			Region: "us-south-2",
-			Specs: api.InstanceSpecs{
-				Bus:   "sxm5",
-				GPUs:  1,
-				Model: "h100",
-			},
-		}
-		options, err := m.client.FetchInstanceOptions()
-		if err != nil {
-			return errMsg{err}
-		}
-		bestOption, err := api.SelectBestInstanceOption(options, requested)
-		if err != nil {
-			return errMsg{err}
-		}
-		_, err = m.client.LaunchInstances(bestOption, 1)
+		_, err := m.client.LaunchInstances(*m.selectedOption, 1)
 		if err != nil {
 			return errMsg{err}
 		}
@@ -297,36 +311,61 @@ func (m Model) SSHCmd() error {
 // }
 
 func machineSliceToTableRows(machines []api.InstanceDetails) []table.Row {
+	// Sort the slice before transforming into table rows
+	sort.SliceStable(machines, func(i, j int) bool {
+		// Takes custom sort function sortBy
+		// return sortBy(machines[i], machines[j])
+
+		// Sort by name for now
+		return machines[i].Name < machines[j].Name
+	})
+
 	rows := make([]table.Row, len(machines))
 	for i, machine := range machines {
-		instanceSpecs, err := api.ParseInstanceType(machine.InstanceType)
-		if err != nil {
-			instanceSpecs.Model = machine.InstanceType.Name
+		model := machine.InstanceType.GPUDescription
+		if model == "N/A" {
+			model = machine.InstanceType.Description
 		}
 		rows[i] = table.Row{
 			machine.Name,
 			machine.Region.Name,
 			machine.IP,
 			machine.PrivateIP,
-			instanceSpecs.Model,
-			instanceSpecs.Bus,
+			model,
 			fmt.Sprintf("%d", machine.InstanceType.Specs.GPUs),
 			fmt.Sprintf("%d", machine.InstanceType.Specs.VCPUs),
 			fmt.Sprintf("%d GiB", machine.InstanceType.Specs.MemoryGiB),
+			fmt.Sprintf("%d GiB", machine.InstanceType.Specs.StorageGiB),
 			machine.Status,
 		}
 	}
+
 	return rows
 }
 
 func optionSliceToTableRows(options []api.InstanceOption) []table.Row {
+	// Sort the slice before transforming into table rows
+	sort.SliceStable(options, func(i, j int) bool {
+		// Takes custom sort function sortBy
+		// return sortBy(machines[i], machines[j])
+
+		// Sort by price for now
+		return options[i].PriceHour < options[j].PriceHour
+	})
+
 	rows := make([]table.Row, len(options))
 	for i, option := range options {
+		model := option.Type.GPUDescription
+		if model == "N/A" {
+			model = option.Type.Description
+		}
 		rows[i] = table.Row{
 			option.Region,
-			fmt.Sprintf("%d", option.Specs.GPUs),
-			option.Specs.Model,
-			option.Specs.Bus,
+			model,
+			fmt.Sprintf("%d", option.Type.Specs.GPUs),
+			fmt.Sprintf("%d", option.Type.Specs.VCPUs),
+			fmt.Sprintf("%d GiB", option.Type.Specs.MemoryGiB),
+			fmt.Sprintf("%d GiB", option.Type.Specs.StorageGiB),
 			fmt.Sprintf("%.2f", float64(option.PriceHour)/100),
 		}
 	}

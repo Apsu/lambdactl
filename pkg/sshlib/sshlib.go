@@ -11,25 +11,6 @@ import (
 	"golang.org/x/term"
 )
 
-type SSHClient struct {
-	Client *ssh.Client
-	PubKey ssh.PublicKey
-}
-type SSHSession struct {
-	Session *ssh.Session
-}
-
-type SFTPClient struct {
-	Client *sftp.Client
-}
-
-type SSHTarget struct {
-	Host    string // IP or Hostname
-	KeyName string // Default id_rsa
-	Port    int    // Default 22
-	User    string // Default ubuntu
-}
-
 // Return new client for target
 func NewSSHClient(target SSHTarget) (*SSHClient, error) {
 	// TODO: Wire in viper for user/port defaults
@@ -81,6 +62,59 @@ func (s *SSHSession) Shell() error {
 	s.Session.Stdout = os.Stdout
 	s.Session.Stderr = os.Stderr
 
+	// // Make input raw to remove weirdness
+	// oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	// if err != nil {
+	// 	return fmt.Errorf("failed to make terminal raw: %v", err)
+	// }
+	// defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+	// // Grab current size and terminal profile
+	// w, h, err := term.GetSize(int(os.Stdin.Fd()))
+	// if err != nil {
+	// 	return fmt.Errorf("failed to get terminal size: %v", err)
+	// }
+
+	// term := os.Getenv("TERM")
+	// if term == "" {
+	// 	term = "xterm-256color"
+	// }
+
+	// // Ask for a matching new PTY
+	// if err = s.Session.RequestPty(term, h, w, ssh.TerminalModes{}); err != nil {
+	// 	return fmt.Errorf("failed to request PTY on remote s: %v", err)
+	// }
+
+	// Start a login shell
+	if err := s.Session.Shell(); err != nil {
+		return fmt.Errorf("failed to launch remote shell: %v", err)
+	}
+
+	// Block until it returns
+	return s.Session.Wait()
+}
+
+// All in one interactive shell
+func NewShell(host string, port int, user string, keyName string) error {
+	target := SSHTarget{
+		Host:    host,
+		KeyName: keyName,
+		Port:    port,
+		User:    user,
+	}
+
+	c, err := NewSSHClient(target)
+	if err != nil {
+		return err
+	}
+	defer c.Client.Close()
+
+	s, err := c.NewSession()
+	if err != nil {
+		return err
+	}
+	defer s.Session.Close()
+
 	// Make input raw to remove weirdness
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
@@ -104,32 +138,18 @@ func (s *SSHSession) Shell() error {
 		return fmt.Errorf("failed to request PTY on remote s: %v", err)
 	}
 
+	// Connect all the pipes
+	s.Session.Stdin = os.Stdin
+	s.Session.Stdout = os.Stdout
+	s.Session.Stderr = os.Stderr
+
 	// Start a login shell
-	if err = s.Session.Shell(); err != nil {
+	if err := s.Session.Shell(); err != nil {
 		return fmt.Errorf("failed to launch remote shell: %v", err)
 	}
 
-	// Block until it returns
 	return s.Session.Wait()
-}
-
-// All in one interactive shell
-func NewShell(host string, port int, user string, keyName string) error {
-	target := SSHTarget{
-		Host:    host,
-		KeyName: keyName,
-		Port:    port,
-		User:    user,
-	}
-	s, err := NewSSHClient(target)
-	if err != nil {
-		return err
-	}
-	se, err := s.NewSession()
-	if err != nil {
-		return err
-	}
-	return se.Shell()
+	// return se.Shell()
 }
 
 // Run command in new session

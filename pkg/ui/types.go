@@ -11,6 +11,7 @@ const (
 	runningState = "running"
 	detailState  = "detail"
 	optionState  = "option"
+	launchState  = "launch"
 )
 
 type Model struct {

@@ -10,82 +10,12 @@ import (
 	"net/http"
 
 	"slices"
-	"strings"
 	"time"
 
 	"lambdactl/pkg/utils"
 
 	"github.com/spf13/viper"
 )
-
-type InstanceSpecs struct {
-	Bus        string `yaml:"Bus"`
-	GPUs       int    `json:"gpus" yaml:"GPUs"`
-	MemoryGiB  int    `json:"memory_gib" yaml:"MemoryGiB"`
-	Model      string `yaml:"Model"`
-	StorageGiB int    `json:"storage_gib" yaml:"StorageGiB"`
-	VCPUs      int    `json:"vcpus" yaml:"VCPUs"`
-}
-
-type InstanceType struct {
-	Description       string        `json:"description" yaml:"Description"`
-	GPUDescription    string        `json:"gpu_description" yaml:"GPUDescription"`
-	Name              string        `json:"name" yaml:"Name"`
-	PriceCentsPerHour int           `json:"price_cents_per_hour" yaml:"PriceCentsPerHour"`
-	Specs             InstanceSpecs `json:"specs" yaml:"Specs"`
-}
-
-type Region struct {
-	Description string `json:"description" yaml:"Description"`
-	Name        string `json:"name" yaml:"Name"`
-}
-
-type InstanceData struct {
-	InstanceType     InstanceType `json:"instance_type" yaml:"InstanceType"`
-	RegionsAvailable []Region     `json:"regions_with_capacity_available" yaml:"RegionsAvailable"`
-}
-
-type InstanceTypesResponse struct {
-	InstanceTypes map[string]InstanceData `json:"data" yaml:"InstanceTypes"`
-}
-
-type InstanceLaunchData struct {
-	InstanceIDs []string `json:"instance_ids" yaml:"InstanceIDs"`
-}
-
-type InstanceLaunchResponse struct {
-	InstanceLaunches InstanceLaunchData `json:"data" yaml:"InstanceLaunches"`
-}
-
-type InstanceDetails struct {
-	Filesystems  []string     `json:"file_system_names" yaml:"Filesystems"`
-	Hostname     string       `json:"hostname" yaml:"Hostname"`
-	ID           string       `json:"id" yaml:"ID"`
-	InstanceType InstanceType `json:"instance_type" yaml:"InstanceType"`
-	IP           string       `json:"ip" yaml:"IP"`
-	IsReserved   bool         `json:"is_reserved" yaml:"IsReserved"`
-	Name         string       `json:"name" yaml:"Name"`
-	PrivateIP    string       `json:"private_ip" yaml:"PrivateIP"`
-	Region       Region       `json:"region" yaml:"Region"`
-	SSHKeys      []string     `json:"ssh_key_names" yaml:"SSHKeys"`
-	Status       string       `json:"status" yaml:"Status"`
-}
-
-type InstanceListResponse struct {
-	InstanceList []InstanceDetails `json:"data" yaml:"InstanceList"`
-}
-
-type InstanceOption struct {
-	PriceHour int           `yaml:"PriceHour"`
-	Region    string        `yaml:"Region"`
-	Specs     InstanceSpecs `yaml:"Specs"`
-	Type      string        `yaml:"Type"`
-}
-
-type APIClient struct {
-	BaseURL string
-	APIKey  string
-}
 
 func NewAPIClient(baseURL, apiKey string) *APIClient {
 	return &APIClient{
@@ -148,128 +78,16 @@ func (c *APIClient) FetchInstanceOptions() ([]InstanceOption, error) {
 	instanceOptions := []InstanceOption{}
 	for _, data := range instanceTypes.InstanceTypes {
 		for _, region := range data.RegionsAvailable {
-			instanceSpecs, err := ParseInstanceType(data.InstanceType)
-			if err != nil {
-				continue
-			}
-
 			instanceOption := InstanceOption{
 				PriceHour: data.InstanceType.PriceCentsPerHour,
 				Region:    region.Name,
-				Specs:     instanceSpecs,
-				Type:      data.InstanceType.Name,
+				Type:      data.InstanceType,
 			}
 			instanceOptions = append(instanceOptions, instanceOption)
 		}
 	}
 
 	return instanceOptions, nil
-}
-
-func ParseInstanceType(input InstanceType) (InstanceSpecs, error) {
-	specs := input.Specs
-	specs.Bus = "pcie" // Default
-
-	fields := strings.Split(input.Name, "_")
-	for i, field := range fields {
-		switch i {
-		case 0:
-			if field == "cpu" {
-				specs.Model = "cpu"
-			}
-		case 2:
-			specs.Model = field
-		case 3:
-			specs.Bus = field
-		}
-	}
-
-	return specs, nil
-}
-
-func ParseOptionType(input string) (InstanceSpecs, error) {
-	specs := InstanceSpecs{
-		Bus: "pcie", // Default
-	}
-
-	fields := strings.Split(input, "_")
-	for i, field := range fields {
-		switch i {
-		case 0:
-			if field == "cpu" {
-				specs.Model = "cpu"
-			}
-		case 2:
-			specs.Model = field
-		case 3:
-			specs.Bus = field
-		}
-	}
-
-	return specs, nil
-}
-
-// func ParseGPUString(input string) (GPUSpec, error) {
-// 	re := regexp.MustCompile(`(\d+)x\s+(\w+)\s+\((\d+)\s+GB(?:\s+(\w+))?\)`)
-// 	matches := re.FindStringSubmatch(input)
-
-// 	if len(matches) < 4 {
-// 		return GPUSpec{}, fmt.Errorf("invalid GPU string format")
-// 	}
-
-// 	ram, err := strconv.Atoi(matches[3])
-// 	if err != nil {
-// 		return GPUSpec{}, fmt.Errorf("invalid RAM: %v", err)
-// 	}
-
-// 	bus := "PCIe" // Default to PCIe if not specified
-// 	if len(matches) > 4 && matches[4] != "" {
-// 		bus = matches[4]
-// 	}
-
-// 	return GPUSpec{
-// 		Model: matches[2],
-// 		RAM:   ram,
-// 		Bus:   bus,
-// 	}, nil
-// }
-
-func SelectBestInstanceOption(options []InstanceOption, requested InstanceOption) (InstanceOption, error) {
-	var bestOption InstanceOption
-	lowestCost := math.MaxInt
-
-	for _, option := range options {
-		// Check if the option meets the minimum requirements
-		// if option.Spec.RAM < requested.Spec.RAM || option.Count < requested.Count {
-		// 	continue
-		// }
-
-		// Check model and bus only if they are specified
-		if requested.Specs.Model != "" && option.Specs.Model != requested.Specs.Model {
-			continue
-		}
-
-		if requested.Specs.Bus != "" && option.Specs.Bus != requested.Specs.Bus {
-			continue
-		}
-
-		// Check region if specified
-		if requested.Region != "" && option.Region != requested.Region {
-			continue
-		}
-
-		// If we've made it here, the option is valid. Check if it's the best so far.
-		if option.PriceHour < lowestCost {
-			lowestCost = option.PriceHour
-			bestOption = option
-		}
-	}
-
-	if bestOption.Type == "" {
-		return InstanceOption{}, errors.New("no suitable GPU option found")
-	}
-
-	return bestOption, nil
 }
 
 func (c *APIClient) LaunchInstances(instanceOption InstanceOption, quantity int) (InstanceLaunchData, error) {
@@ -283,7 +101,7 @@ func (c *APIClient) LaunchInstances(instanceOption InstanceOption, quantity int)
 
 	data := map[string]interface{}{
 		"region_name":        instanceOption.Region,
-		"instance_type_name": instanceOption.Type,
+		"instance_type_name": instanceOption.Type.Name,
 		"ssh_key_names":      sshKeyNames,
 		"quantity":           quantity,
 	}
@@ -337,11 +155,41 @@ func (c *APIClient) ListInstances() ([]InstanceDetails, error) {
 		return nil, fmt.Errorf("failed to get instance details: %v", err)
 	}
 
-	var allInstances InstanceListResponse
-	err = json.Unmarshal(resp, &allInstances)
+	var listResponse InstanceListResponse
+	err = json.Unmarshal(resp, &listResponse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal API response: %v", err)
 	}
 
-	return allInstances.InstanceList, nil
+	return listResponse.InstanceList, nil
+}
+
+func SelectBestInstanceOption(options []InstanceOption, requested InstanceOption) (InstanceOption, error) {
+	var bestOption InstanceOption
+	lowestCost := math.MaxInt
+
+	// Check if the options meet the minimum requirements
+	for _, option := range options {
+		// Check model and bus only if they are specified
+		if requested.Type.Name != "" && option.Type.Name != requested.Type.Name {
+			continue
+		}
+
+		// Check region if specified
+		if requested.Region != "" && option.Region != requested.Region {
+			continue
+		}
+
+		// If we've made it here, the option is valid. Check if it's the best so far.
+		if option.PriceHour < lowestCost {
+			lowestCost = option.PriceHour
+			bestOption = option
+		}
+	}
+
+	if bestOption.Type.Name == "" {
+		return InstanceOption{}, errors.New("no suitable GPU option found")
+	}
+
+	return bestOption, nil
 }
