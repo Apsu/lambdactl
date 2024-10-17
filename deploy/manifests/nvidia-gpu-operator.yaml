@@ -10,11 +10,6 @@ spec:
   chart: gpu-operator
   version: 24.6.1
   valuesContent: |-
-    validator:
-      driver:
-        env:
-          - name: DISABLE_DEV_CHAR_SYMLINK_CREATION
-            value: "true"
     driver:
       upgradePolicy:
         autoUpgrade: false

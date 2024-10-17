@@ -56,9 +56,8 @@ type InstanceListResponse struct {
 }
 
 type InstanceOption struct {
-	PriceHour int          `yaml:"PriceHour"`
-	Region    string       `yaml:"Region"`
-	Type      InstanceType `yaml:"Type"`
+	Region string       `yaml:"Region"`
+	Type   InstanceType `yaml:"Type"`
 }
 
 type APIClient struct {

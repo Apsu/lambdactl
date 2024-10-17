@@ -194,6 +194,7 @@ func deployKubernetes(c *sshlib.SSHClient, s *sshlib.SFTPClient, publicIP string
 		configDir + "config.yaml":                "deploy/configs/" + nodeRole + "-config.yaml",
 		manifestDir + "rke2-cilium-values.yaml":  "deploy/manifests/rke2-cilium-values.yaml",
 		manifestDir + "rke2-coredns-values.yaml": "deploy/manifests/rke2-coredns-values.yaml",
+		manifestDir + "nvidia-gpu-operator.yaml": "deploy/manifests/nvidia-gpu-operator.yaml",
 		// Add more template paths as needed
 	}
 

@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"strings"
 
 	"lambdactl/pkg/ui"
 
@@ -52,19 +53,21 @@ func initConfig() {
 		viper.SetConfigName(".lambda")
 	}
 
+	// Override with LAMBDA_* env vars, where . and - map to _
+	viper.SetEnvPrefix("LAMBDA")
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
+	viper.AutomaticEnv()
+
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			// Config file was found but another error was produced
 			fmt.Printf("Error reading config file: %v\n", err)
 		}
 	}
-
-	// Override config values with environment variables
-	viper.AutomaticEnv()
 }
 
 func checkRequiredConfig() {
-	requiredKeys := []string{"apiUrl", "apiKey"}
+	requiredKeys := []string{"api-url", "api-key"}
 	missingKeys := []string{}
 
 	for _, key := range requiredKeys {

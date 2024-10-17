@@ -79,9 +79,8 @@ func (c *APIClient) FetchInstanceOptions() ([]InstanceOption, error) {
 	for _, data := range instanceTypes.InstanceTypes {
 		for _, region := range data.RegionsAvailable {
 			instanceOption := InstanceOption{
-				PriceHour: data.InstanceType.PriceCentsPerHour,
-				Region:    region.Name,
-				Type:      data.InstanceType,
+				Region: region.Name,
+				Type:   data.InstanceType,
 			}
 			instanceOptions = append(instanceOptions, instanceOption)
 		}
@@ -92,7 +91,7 @@ func (c *APIClient) FetchInstanceOptions() ([]InstanceOption, error) {
 
 func (c *APIClient) LaunchInstances(instanceOption InstanceOption, quantity int) (InstanceLaunchData, error) {
 	var sshKeyNames []string
-	if err := viper.UnmarshalKey("sshKeyNames", &sshKeyNames); err != nil || sshKeyNames == nil {
+	if err := viper.UnmarshalKey("ssh-key-names", &sshKeyNames); err != nil || sshKeyNames == nil {
 		sshKeyNames = []string{"AAP"} // Fallback key
 	}
 	if quantity < 1 {
@@ -170,7 +169,7 @@ func SelectBestInstanceOption(options []InstanceOption, requested InstanceOption
 
 	// Check if the options meet the minimum requirements
 	for _, option := range options {
-		// Check model and bus only if they are specified
+		// Check type name if specified
 		if requested.Type.Name != "" && option.Type.Name != requested.Type.Name {
 			continue
 		}
@@ -180,9 +179,11 @@ func SelectBestInstanceOption(options []InstanceOption, requested InstanceOption
 			continue
 		}
 
+		// TODO: Add additional filters
+
 		// If we've made it here, the option is valid. Check if it's the best so far.
-		if option.PriceHour < lowestCost {
-			lowestCost = option.PriceHour
+		if option.Type.PriceCentsPerHour < lowestCost {
+			lowestCost = option.Type.PriceCentsPerHour
 			bestOption = option
 		}
 	}

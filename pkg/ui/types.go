@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 )
 
 const (
@@ -12,6 +14,29 @@ const (
 	detailState  = "detail"
 	optionState  = "option"
 	launchState  = "launch"
+	sshState     = "ssh"
+)
+
+const (
+	draculaBackground  = "#282a36"
+	draculaForeground  = "#f8f8f2"
+	draculaError       = "#ff5555"
+	draculaSelection   = "#44475a"
+	draculaHeaderColor = "#bd93f9" // Purple for headers
+	draculaHighlight   = "#ff79c6" // Pink for selected rows
+)
+
+var (
+	borderStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			Padding(1).
+			BorderForeground(lipgloss.Color(draculaHeaderColor))
+	errorStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(draculaError)).      // Dracula's red color
+			Background(lipgloss.Color(draculaBackground)). // Dracula's background
+			Padding(0, 1).
+			Align(lipgloss.Center)
 )
 
 type Model struct {
@@ -23,15 +48,19 @@ type Model struct {
 	filter          string
 	runningTable    table.Model
 	optionTable     table.Model
+	launchForm      huh.Form
 	currentState    string
 	previousState   string
 	errorMsg        string
 	refreshInterval time.Duration
+	errorTimeout    time.Duration
 }
 
 type errMsg struct {
 	err error
 }
+
+type clearErrMsg struct{}
 
 func (e errMsg) Error() string {
 	return e.err.Error()
@@ -40,8 +69,6 @@ func (e errMsg) Error() string {
 type filterMsg struct {
 	filter string
 }
-
-type createdVMMsg struct{}
 
 type instancesMsg struct {
 	instances []api.InstanceDetails

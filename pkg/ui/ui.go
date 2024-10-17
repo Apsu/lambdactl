@@ -8,18 +8,33 @@ import (
 
 	"lambdactl/pkg/api"
 	"lambdactl/pkg/sshlib"
+	"lambdactl/pkg/utils"
 
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/viper"
-	"gopkg.in/yaml.v3"
 )
 
 func NewModel() *Model {
 	client := api.NewAPIClient(
-		viper.GetString("apiUrl"),
-		viper.GetString("apiKey"),
+		viper.GetString("api-url"),
+		viper.GetString("api-key"),
 	)
+
+	styles := table.Styles{
+		Header: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(draculaHeaderColor)).
+			Background(lipgloss.Color(draculaBackground)).
+			Padding(0, 1),
+		Cell: lipgloss.NewStyle().Padding(0, 1),
+		Selected: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(draculaForeground)).
+			Background(lipgloss.Color(draculaHighlight)),
+	}
 
 	runningColumns := []table.Column{
 		{Title: "Name", Width: 20},
@@ -47,31 +62,37 @@ func NewModel() *Model {
 	runningTable := table.New(
 		table.WithColumns(runningColumns),
 		table.WithFocused(true),
-		table.WithHeight(20),
 	)
+	runningTable.SetStyles(styles)
 
 	optionTable := table.New(
 		table.WithColumns(optionColumns),
 		table.WithFocused(false),
-		table.WithHeight(20),
 	)
+	optionTable.SetStyles(styles)
 
 	return &Model{
 		client:          client,
-		refreshInterval: 5 * time.Second,
+		refreshInterval: 30 * time.Second,
+		errorTimeout:    5 * time.Second,
 		currentState:    runningState,
 		runningTable:    runningTable,
 		optionTable:     optionTable,
+		// launchForm:      *launchForm,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.refreshInstances(), m.refreshOptions(), m.startTimer())
+	return tea.Batch(
+		m.refreshInstances(),
+		m.refreshOptions(),
+		m.startTimer(m.refreshInterval, timerMsg{}),
+	)
 }
 
-func (m Model) startTimer() tea.Cmd {
-	return tea.Tick(m.refreshInterval, func(t time.Time) tea.Msg {
-		return timerMsg{}
+func (m Model) startTimer(interval time.Duration, msg any) tea.Cmd {
+	return tea.Tick(interval, func(t time.Time) tea.Msg {
+		return msg
 	})
 }
 
@@ -98,6 +119,16 @@ func (m Model) refreshOptions() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case errMsg:
+		if msg.err != nil {
+			m.errorMsg = msg.err.Error()
+			return m, m.startTimer(m.errorTimeout, clearErrMsg{})
+		}
+		return m, nil
+	case clearErrMsg:
+		m.errorMsg = ""
+	}
 	switch m.currentState {
 	case runningState:
 		return m.updateRunningState(msg)
@@ -114,15 +145,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateRunningState(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case errMsg:
-		m.errorMsg = msg.Error()
-		return m, nil
 	case instancesMsg:
 		m.machines = msg.instances
 		m.runningTable.SetRows(machineSliceToTableRows(m.machines))
 		return m, nil
 	case timerMsg:
-		return m, tea.Batch(m.refreshInstances(), m.startTimer())
+		return m, tea.Batch(m.refreshInstances(), m.startTimer(m.refreshInterval, timerMsg{}))
 	case tea.KeyMsg:
 		switch keypress := msg.String(); keypress {
 		case "q", "ctrl+c":
@@ -130,10 +158,17 @@ func (m Model) updateRunningState(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			m.selectedMachine = &m.machines[m.runningTable.Cursor()]
 			m.currentState = detailState
+			return m, m.startTimer(m.errorTimeout, timerMsg{})
 		case "tab":
 			m.currentState = optionState
 			m.optionTable.Focus()
 			return m, m.refreshOptions()
+		case "e":
+			return m, tea.Cmd(
+				func() tea.Msg {
+					return errMsg{fmt.Errorf("THIS IS A TEST")}
+				},
+			)
 		}
 	}
 
@@ -144,15 +179,10 @@ func (m Model) updateRunningState(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateOptionState(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case errMsg:
-		m.errorMsg = msg.Error()
-		return m, nil
 	case optionsMsg:
 		m.options = msg.options
 		m.optionTable.SetRows(optionSliceToTableRows(m.options))
 		return m, nil
-	// case timerMsg:
-	// 	return m, tea.Batch(m.refreshInstances(), m.startTimer())
 	case tea.KeyMsg:
 		switch keypress := msg.String(); keypress {
 		case "q", "ctrl+c":
@@ -160,7 +190,10 @@ func (m Model) updateOptionState(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "tab":
 			m.currentState = runningState
 			m.runningTable.Focus()
-			return m, tea.Batch(m.refreshInstances(), m.startTimer())
+			return m, tea.Batch(
+				m.refreshInstances(),
+				m.startTimer(m.refreshInterval, timerMsg{}),
+			)
 		case "enter":
 			m.currentState = launchState
 			m.selectedOption = &m.options[m.optionTable.Cursor()]
@@ -176,6 +209,8 @@ func (m Model) updateOptionState(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateDetailState(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case timerMsg:
+		return m, m.startTimer(m.errorTimeout, timerMsg{})
 	case tea.KeyMsg:
 		switch keypress := msg.String(); keypress {
 		case "q", "ctrl+c":
@@ -183,12 +218,21 @@ func (m Model) updateDetailState(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.currentState = runningState
 			m.runningTable.Focus()
-			return m, tea.Batch(m.refreshInstances(), m.startTimer())
+			return m, tea.Batch(
+				m.refreshInstances(),
+				m.startTimer(m.refreshInterval, timerMsg{}),
+			)
 		case "s":
-			program.ReleaseTerminal()
-			_ = m.SSHCmd()
-			program.RestoreTerminal()
-			return m, func() tea.Msg { return tea.EnterAltScreen() }
+			return m, tea.Exec(
+				&sshlib.SSHExecCommand{
+					Target: sshlib.SSHTarget{
+						Host:    m.selectedMachine.IP,
+						KeyName: "id_aap",
+						Port:    22,
+						User:    "ubuntu",
+					},
+				}, func(err error) tea.Msg { return errMsg{err} },
+			)
 		}
 	}
 
@@ -208,7 +252,11 @@ func (m Model) updateLaunchState(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selectedOption = &m.options[m.optionTable.Cursor()]
 			m.currentState = runningState
 			m.runningTable.Focus()
-			return m, tea.Batch(m.refreshInstances(), m.launchCmd(), m.startTimer())
+			return m, tea.Sequence(
+				m.launchCmd(),
+				m.refreshInstances(),
+				m.startTimer(m.refreshInterval, timerMsg{}),
+			)
 		}
 	}
 
@@ -216,30 +264,33 @@ func (m Model) updateLaunchState(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
+	var viewContent, errorDisplay string
 	if m.errorMsg != "" {
-		return "Error: " + m.errorMsg
+		errorDisplay = errorStyle.Render("Error: " + m.errorMsg)
 	}
 
 	// Dispatch to state's view func
 	switch m.currentState {
 	case runningState:
-		return runningView(m)
+		viewContent = runningView(m)
 	case optionState:
-		return optionView(m)
+		viewContent = optionView(m)
 	case detailState:
-		return detailView(m)
+		viewContent = detailView(m)
 	case launchState:
-		return launchView(m)
+		viewContent = launchView(m)
 	default:
-		return fmt.Sprintf("Unknown view for state: %v", m.currentState)
+		viewContent = fmt.Sprintf("Unknown view for state: %v", m.currentState)
 	}
+
+	return lipgloss.JoinVertical(lipgloss.Top, viewContent, errorDisplay)
 }
 
 func runningView(m Model) string {
 	var b strings.Builder
 
 	b.WriteString("VM List\n\n")
-	b.WriteString(m.runningTable.View())
+	b.WriteString(borderStyle.Render(m.runningTable.View()))
 	b.WriteString("\n\n(q) Quit (enter) View Details (tab) Launch Options")
 	return b.String()
 }
@@ -248,7 +299,7 @@ func optionView(m Model) string {
 	var b strings.Builder
 
 	b.WriteString("Instances Available\n\n")
-	b.WriteString(m.optionTable.View())
+	b.WriteString(borderStyle.Render(m.optionTable.View()))
 	b.WriteString("\n\n(q) Quit (enter) View Option (tab) Running Instances (r) Refresh Options")
 
 	return b.String()
@@ -257,13 +308,8 @@ func optionView(m Model) string {
 func detailView(m Model) string {
 	var b strings.Builder
 
-	machineYAML, err := yaml.Marshal(m.selectedMachine)
-	if err != nil {
-		return fmt.Sprintf("error marshalling YAML: %v", err)
-	}
-
 	b.WriteString("VM Details\n\n")
-	b.WriteString(string(machineYAML))
+	b.WriteString(borderStyle.Render(utils.PrettyYAML(m.selectedMachine)))
 	b.WriteString("\n\n(q) Quit (esc) Back (s) SSH")
 
 	return b.String()
@@ -272,13 +318,8 @@ func detailView(m Model) string {
 func launchView(m Model) string {
 	var b strings.Builder
 
-	machineYAML, err := yaml.Marshal(m.selectedOption)
-	if err != nil {
-		return fmt.Sprintf("error marshalling YAML: %v", err)
-	}
-
 	b.WriteString("Launch this option?\n\n")
-	b.WriteString(string(machineYAML))
+	b.WriteString(utils.PrettyYAML(m.selectedOption))
 	b.WriteString("\n\n(q) Quit (esc) Back (l) Launch")
 
 	return b.String()
@@ -292,10 +333,6 @@ func (m Model) launchCmd() tea.Cmd {
 		}
 		return m.refreshInstances()
 	}
-}
-
-func (m Model) SSHCmd() error {
-	return sshlib.NewShell(m.selectedMachine.IP, 22, "ubuntu", "id_aap")
 }
 
 // func (m Model) applyFilter() tea.Cmd {
@@ -350,7 +387,7 @@ func optionSliceToTableRows(options []api.InstanceOption) []table.Row {
 		// return sortBy(machines[i], machines[j])
 
 		// Sort by price for now
-		return options[i].PriceHour < options[j].PriceHour
+		return options[i].Type.PriceCentsPerHour < options[j].Type.PriceCentsPerHour
 	})
 
 	rows := make([]table.Row, len(options))
@@ -366,17 +403,14 @@ func optionSliceToTableRows(options []api.InstanceOption) []table.Row {
 			fmt.Sprintf("%d", option.Type.Specs.VCPUs),
 			fmt.Sprintf("%d GiB", option.Type.Specs.MemoryGiB),
 			fmt.Sprintf("%d GiB", option.Type.Specs.StorageGiB),
-			fmt.Sprintf("%.2f", float64(option.PriceHour)/100),
+			fmt.Sprintf("%.2f", float64(option.Type.PriceCentsPerHour)/100),
 		}
 	}
 	return rows
 }
 
-// Global so we can manipulate terminal/stdin reader for SSH
-var program *tea.Program
-
 func Start() error {
-	program = tea.NewProgram(NewModel(), tea.WithAltScreen())
+	program := tea.NewProgram(NewModel(), tea.WithAltScreen())
 	_, err := program.Run()
 	if err != nil {
 		return fmt.Errorf("error running program: %v", err)
