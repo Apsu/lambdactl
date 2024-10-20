@@ -2,11 +2,14 @@ package ui
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"lambdactl/pkg/api"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/spf13/viper"
 )
 
@@ -16,54 +19,41 @@ func NewModel() *Model {
 		viper.GetString("api-key"),
 	)
 
+	contentTable := table.New(
+		table.WithFocused(true),
+	)
+
 	m := &Model{
 		client:          client,
 		refreshInterval: 30 * time.Second,
 		errorTimeout:    5 * time.Second,
-		currentState:    runningState,
+		currentState:    instanceState,
+		header:          "Lambda Cloud",
+		footer:          "Press 'q' to quit",
+		content:         contentTable,
 	}
-
-	m.instanceTable = NewTable(
-		TableRow{
-			"Name",
-			"Region",
-			"Public IP",
-			"Private IP",
-			"Model",
-			"GPUs",
-			"CPUs",
-			"RAM",
-			"Storage",
-			"Status",
-		},
-	)
-	m.instanceTable.SetStyles(tableStyle, borderStyle, selectStyle)
-
-	m.optionTable = NewTable(
-		TableRow{
-			"Region",
-			"Model",
-			"GPUs",
-			"vCPUs",
-			"Memory",
-			"Storage",
-			"$/Hour",
-		},
-	)
-	m.optionTable.SetStyles(tableStyle, borderStyle, selectStyle)
 
 	return m
 }
 
-func (m Model) Init() tea.Cmd {
+func (m *Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.refreshInstances(),
-		m.refreshOptions(),
 		m.startTimer(m.refreshInterval, timerMsg{}),
 	)
 }
 
 func Start() error {
+	// Create a log file
+	if f, err := os.OpenFile("debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666); err != nil {
+		log.Fatal(err)
+	} else {
+		defer f.Close()
+
+		// Set log output to the file
+		log.SetOutput(f)
+	}
+
 	program := tea.NewProgram(
 		NewModel(),
 		tea.WithAltScreen(),

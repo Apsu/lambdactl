@@ -1,75 +1,54 @@
 package ui
 
 import (
-	"fmt"
+	"log"
+
 	"lambdactl/pkg/utils"
 
-	"github.com/charmbracelet/lipgloss"
+	lg "github.com/charmbracelet/lipgloss"
 )
 
-func (m Model) View() string {
-	var viewContent, errorContent, output string
-
-	// Header content
-	header := headerStyle.Width(m.width - 2).Render("Lambda Cloud - Running Instances")
-
-	// Footer content
-	footer := footerStyle.Width(m.width - 2).Render(fmt.Sprintf("(q) Quit (enter) Select (tab) Switch View (esc) Back - cursor: %d, offset: %d, viewport: %d, length: %d", m.instanceTable.cursor, m.instanceTable.offset, m.instanceTable.viewport, m.instanceTable.length))
-
-	// Dispatch to state's view func
-	switch m.currentState {
-	case runningState:
-		viewContent = runningView(m)
-	case optionState:
-		viewContent = optionView(m)
-	case launchState:
-		viewContent = launchView(m)
-	default:
-		viewContent = runningView(m)
-	}
-
-	// Show error message in the footer area if it exists
-	if m.errorMsg != "" {
-		errorContent = errorStyle.Render("Error: " + m.errorMsg)
-		// Join header, main content, and error until it times out
-		output = lipgloss.JoinVertical(lipgloss.Top, header, viewContent, errorContent)
-	} else {
-		// Join header, main content, and footer
-		output = lipgloss.JoinVertical(lipgloss.Top, header, viewContent, footer)
-	}
-
-	// If in optionState, show the modal on top of the running content
-	if m.currentState == detailState {
-		// Render the modal but preserve the background content
-		modal := lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, detailView(m))
-
-		// Overlay the modal on top of the current view
-		output = lipgloss.JoinVertical(lipgloss.Top, output, modal)
-	}
-	return output
+func (m *Model) renderHeader() string {
+    return headerStyle.Render(m.header)
 }
 
-func runningView(m Model) string {
-	return tableStyle.Render(m.instanceTable.View())
+func (m *Model) renderFooter() string {
+    return footerStyle.Render(m.footer)
 }
 
-func detailView(m Model) string {
-	return modalStyle.Render(utils.PrettyYAML(m.selectedInstance))
+func (m *Model) renderContent() string {
+    // return tableStyle.Render(m.content.View())
+    return m.content.View()
 }
 
-func optionView(m Model) string {
-	return tableStyle.Render(m.optionTable.View())
+func (m *Model) renderDetails() string {
+    switch m.currentState {
+    case instanceState:
+        return utils.PrettyYAML(m.instances[m.cursor])
+    case optionState:
+        return utils.PrettyYAML(m.options[m.cursor])
+    case filesystemState:
+        return utils.PrettyYAML(m.filesystems[m.cursor])
+    case sshState:
+        return utils.PrettyYAML(m.sshKeys[m.cursor])
+    default:
+        return "Unknown State"
+    }
 }
 
-func launchView(m Model) string {
-	modalContent := modalStyle.Render(
-		lipgloss.JoinVertical(lipgloss.Left,
-			"Launch this option?",
-			utils.PrettyYAML(m.selectedOption),
-			"\n(q) Quit (esc) Back (l) Launch",
-		),
-	)
+func (m *Model) View() string {
+    content := m.renderContent()
+	return content
 
-	// Place modal in center of the screen
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modalContent)
+    if m.detailsPanel {
+        details := m.renderDetails()
+        content = lg.JoinHorizontal(lg.Top, content, details)
+    }
+
+	log.Println("View: ", m.currentState)
+    return lg.JoinVertical(lg.Left,
+        m.renderHeader(),
+        content,
+        m.renderFooter(),
+    )
 }

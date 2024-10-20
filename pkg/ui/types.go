@@ -5,19 +5,20 @@ import (
 
 	"lambdactl/pkg/api"
 
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/huh"
 	lg "github.com/charmbracelet/lipgloss"
-	lgt "github.com/charmbracelet/lipgloss/table"
 )
 
+// Main state machine
 const (
-	runningState = "running"
-	detailState  = "detail"
-	optionState  = "options"
-	launchState  = "launch"
-	sshState     = "ssh"
+	instanceState AppState = iota
+	optionState
+	filesystemState
+	sshState
 )
 
+// Theme colors
 const (
 	draculaBackground  = "#282a36"
 	draculaForeground  = "#f8f8f2"
@@ -64,23 +65,26 @@ var (
 			Background(lg.Color(draculaBackground))
 )
 
+type AppState int
+
 type Model struct {
 	client *api.APIClient
 
-	instances []api.Instance
-	options   []api.InstanceOption
+	instances   []api.Instance
+	options     []api.InstanceOption
+	filesystems []api.Filesystem
+	sshKeys     []api.SSHKey
 
-	selectedInstance api.Instance
-	selectedOption   api.InstanceOption
+	cursor int
 
-	currentState string
+	currentState AppState
 	errorMsg     string
 	filter       string
 
-	header        string
-	instanceTable *Table
-	optionTable   *Table
-	footer        string
+	header  string
+	content table.Model
+	detailsPanel bool
+	footer  string
 
 	launchForm *huh.Form
 
@@ -91,29 +95,6 @@ type Model struct {
 	width  int
 	height int
 }
-
-type Table struct {
-	table *lgt.Table
-
-	borderStyle lg.Style
-	selectStyle lg.Style
-	tableStyle  lg.Style
-
-	headers TableRow
-	rows    TableRows
-
-	length int
-
-	width    int // Total table width
-	height   int // Total table height
-	viewport int // Content viewport height
-
-	cursor int // 1 = first row
-	offset int // 0 = no row shift
-}
-
-type TableRow []string
-type TableRows []TableRow
 
 type errMsg struct {
 	err error
@@ -135,6 +116,14 @@ type instancesMsg struct {
 
 type optionsMsg struct {
 	options []api.InstanceOption
+}
+
+type filesystemsMsg struct {
+	filesystems []api.Filesystem
+}
+
+type sshKeysMsg struct {
+	sshKeys []api.SSHKey
 }
 
 type timerMsg struct{}
