@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"lambdactl/pkg/ui"
+	"lambdactl/pkg/tview"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -20,7 +20,7 @@ var rootCmd = &cobra.Command{
 	Use:   "lambdactl",
 	Short: "A CLI for managing Lambda instances",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return ui.Start()
+		return tview.Start()
 	},
 }
 

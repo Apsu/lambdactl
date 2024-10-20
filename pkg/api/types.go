@@ -1,5 +1,7 @@
 package api
 
+import "time"
+
 type InstanceSpecs struct {
 	GPUs       int `json:"gpus" yaml:"GPUs"`
 	MemoryGiB  int `json:"memory_gib" yaml:"MemoryGiB"`
@@ -37,7 +39,7 @@ type InstanceLaunchResponse struct {
 	InstanceLaunches InstanceLaunchData `json:"data" yaml:"InstanceLaunches"`
 }
 
-type InstanceDetails struct {
+type Instance struct {
 	Filesystems  []string     `json:"file_system_names" yaml:"Filesystems"`
 	Hostname     string       `json:"hostname" yaml:"Hostname"`
 	ID           string       `json:"id" yaml:"ID"`
@@ -52,12 +54,43 @@ type InstanceDetails struct {
 }
 
 type InstanceListResponse struct {
-	InstanceList []InstanceDetails `json:"data" yaml:"InstanceList"`
+	InstanceList []Instance `json:"data" yaml:"Instance"`
 }
 
 type InstanceOption struct {
 	Region string       `yaml:"Region"`
 	Type   InstanceType `yaml:"Type"`
+}
+
+type CreationData struct {
+	Email  string `json:"email"`
+	ID     string `json:"id"`
+	Status string `json:"status"`
+}
+
+type Filesystem struct {
+	BytesUsed  int          `json:"bytes_used"`
+	Created    time.Time    `json:"created"`
+	CreatedBy  CreationData `json:"created_by"`
+	ID         string       `json:"id"`
+	IsInUse    bool         `json:"is_in_use"`
+	MountPoint string       `json:"mount_point"`
+	Name       string       `json:"name"`
+	Region     Region       `json:"region"`
+}
+
+type FilesystemListResponse struct {
+	FilesystemList []Filesystem `json:"data" yaml:"Filesystem"`
+}
+
+type SSHKey struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	PublicKey string `json:"public_key"`
+}
+
+type SSHKeyListResponse struct {
+	SSHKeyList []SSHKey `json:"data"`
 }
 
 type APIClient struct {

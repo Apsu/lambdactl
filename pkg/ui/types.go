@@ -1,18 +1,19 @@
 package ui
 
 import (
-	"lambdactl/pkg/api"
 	"time"
 
-	"github.com/charmbracelet/bubbles/table"
+	"lambdactl/pkg/api"
+
 	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
+	lg "github.com/charmbracelet/lipgloss"
+	lgt "github.com/charmbracelet/lipgloss/table"
 )
 
 const (
 	runningState = "running"
 	detailState  = "detail"
-	optionState  = "option"
+	optionState  = "options"
 	launchState  = "launch"
 	sshState     = "ssh"
 )
@@ -20,41 +21,99 @@ const (
 const (
 	draculaBackground  = "#282a36"
 	draculaForeground  = "#f8f8f2"
-	draculaError       = "#ff5555"
-	draculaSelection   = "#44475a"
+	draculaError       = "#ff5555" // Dracula red
+	draculaSelection   = "#44475a" // Inverse foreground for selections
 	draculaHeaderColor = "#bd93f9" // Purple for headers
-	draculaHighlight   = "#ff79c6" // Pink for selected rows
+	draculaHighlight   = "#ff79c6" // Pink background for selections
 )
 
 var (
-	borderStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			Padding(1).
-			BorderForeground(lipgloss.Color(draculaHeaderColor))
-	errorStyle = lipgloss.NewStyle().
+	headerStyle = lg.NewStyle().
+			Border(lg.RoundedBorder()).
+			Background(lg.Color(draculaBackground)).
+			Foreground(lg.Color(draculaHeaderColor)).
+			Align(lg.Center)
+
+	footerStyle = lg.NewStyle().
+			BorderStyle(lg.RoundedBorder()).
+			Background(lg.Color(draculaBackground)).
+			Foreground(lg.Color(draculaHeaderColor))
+
+	tableStyle = lg.NewStyle().
+			Background(lg.Color(draculaBackground)).
+			Foreground(lg.Color(draculaForeground))
+
+	selectStyle = lg.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color(draculaError)).      // Dracula's red color
-			Background(lipgloss.Color(draculaBackground)). // Dracula's background
-			Padding(0, 1).
-			Align(lipgloss.Center)
+			Foreground(lg.Color(draculaSelection)).
+			Background(lg.Color(draculaHighlight))
+
+	modalStyle = lg.NewStyle().
+			BorderStyle(lg.RoundedBorder()).
+			Background(lg.Color(draculaBackground)).
+			Padding(1, 2)
+
+	borderStyle = lg.NewStyle().
+			Foreground(lg.Color(draculaHeaderColor))
+
+	errorStyle = lg.NewStyle().
+			Align(lg.Center).
+			Bold(true).
+			Border(lg.RoundedBorder()).
+			Foreground(lg.Color(draculaError)).
+			Background(lg.Color(draculaBackground))
 )
 
 type Model struct {
-	client          *api.APIClient
-	machines        []api.InstanceDetails
-	selectedMachine *api.InstanceDetails
-	options         []api.InstanceOption
-	selectedOption  *api.InstanceOption
-	filter          string
-	runningTable    table.Model
-	optionTable     table.Model
-	launchForm      huh.Form
-	currentState    string
-	previousState   string
-	errorMsg        string
+	client *api.APIClient
+
+	instances []api.Instance
+	options   []api.InstanceOption
+
+	selectedInstance api.Instance
+	selectedOption   api.InstanceOption
+
+	currentState string
+	errorMsg     string
+	filter       string
+
+	header        string
+	instanceTable *Table
+	optionTable   *Table
+	footer        string
+
+	launchForm *huh.Form
+
 	refreshInterval time.Duration
 	errorTimeout    time.Duration
+
+	// Terminal width/height
+	width  int
+	height int
 }
+
+type Table struct {
+	table *lgt.Table
+
+	borderStyle lg.Style
+	selectStyle lg.Style
+	tableStyle  lg.Style
+
+	headers TableRow
+	rows    TableRows
+
+	length int
+
+	width    int // Total table width
+	height   int // Total table height
+	viewport int // Content viewport height
+
+	cursor int // 1 = first row
+	offset int // 0 = no row shift
+}
+
+type TableRow []string
+type TableRows []TableRow
 
 type errMsg struct {
 	err error
@@ -71,7 +130,7 @@ type filterMsg struct {
 }
 
 type instancesMsg struct {
-	instances []api.InstanceDetails
+	instances []api.Instance
 }
 
 type optionsMsg struct {

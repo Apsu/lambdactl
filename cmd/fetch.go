@@ -17,7 +17,7 @@ var fetchCmd = &cobra.Command{
 }
 
 func fetchFunc(cmd *cobra.Command, args []string) {
-	client := api.NewAPIClient(viper.GetString("apiUrl"), viper.GetString("apiKey"))
+	client := api.NewAPIClient(viper.GetString("api-url"), viper.GetString("api-key"))
 
 	instanceOptions, err := client.FetchInstanceOptions()
 	if err != nil {

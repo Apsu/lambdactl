@@ -13,18 +13,18 @@ var sshCmd = &cobra.Command{
 }
 
 func sshFunc(cmd *cobra.Command, args []string) error {
-	host, _ := cmd.Flags().GetString("host")
+	ip, _ := cmd.Flags().GetString("ip")
 	port, _ := cmd.Flags().GetInt("port")
 	user, _ := cmd.Flags().GetString("user")
 	keyName, _ := cmd.Flags().GetString("keyName")
-	return sshlib.NewShell(host, port, user, keyName)
+	return sshlib.NewShell(ip, port, user, keyName)
 }
 
 func init() {
 	rootCmd.AddCommand(sshCmd)
 
-	sshCmd.MarkFlagRequired("host")
-	sshCmd.Flags().String("host", "", "Hostname or IP")
+	sshCmd.MarkFlagRequired("ip")
+	sshCmd.Flags().String("ip", "", "Target IP")
 	sshCmd.Flags().Int("port", 22, "Remote port")
 	sshCmd.Flags().String("user", "ubuntu", "Remote user")
 	sshCmd.Flags().String("keyName", "id_rsa", "SSH Key Name")

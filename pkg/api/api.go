@@ -24,7 +24,7 @@ func NewAPIClient(baseURL, apiKey string) *APIClient {
 	}
 }
 
-func (c *APIClient) MakeRequest(method, endpoint string, body interface{}) ([]byte, error) {
+func (c APIClient) MakeRequest(method, endpoint string, body interface{}) ([]byte, error) {
 	url := fmt.Sprintf("%s%s", c.BaseURL, endpoint)
 
 	var reqBody []byte
@@ -63,7 +63,7 @@ func (c *APIClient) MakeRequest(method, endpoint string, body interface{}) ([]by
 	return respBody, nil
 }
 
-func (c *APIClient) FetchInstanceOptions() ([]InstanceOption, error) {
+func (c APIClient) FetchInstanceOptions() ([]InstanceOption, error) {
 	resp, err := c.MakeRequest("GET", "instance-types", nil)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving instance types: %v", err)
@@ -89,7 +89,7 @@ func (c *APIClient) FetchInstanceOptions() ([]InstanceOption, error) {
 	return instanceOptions, nil
 }
 
-func (c *APIClient) LaunchInstances(instanceOption InstanceOption, quantity int) (InstanceLaunchData, error) {
+func (c APIClient) LaunchInstances(instanceOption InstanceOption, quantity int) (InstanceLaunchData, error) {
 	var sshKeyNames []string
 	if err := viper.UnmarshalKey("ssh-key-names", &sshKeyNames); err != nil || sshKeyNames == nil {
 		sshKeyNames = []string{"AAP"} // Fallback key
@@ -119,8 +119,8 @@ func (c *APIClient) LaunchInstances(instanceOption InstanceOption, quantity int)
 	return launchResponse.InstanceLaunches, nil
 }
 
-func (c *APIClient) WaitForInstances(instancesLaunched InstanceLaunchData) (map[string]InstanceDetails, error) {
-	var myInstances = map[string]InstanceDetails{}
+func (c APIClient) WaitForInstances(instancesLaunched InstanceLaunchData) (map[string]Instance, error) {
+	var myInstances = map[string]Instance{}
 	for {
 		resp, err := c.MakeRequest("GET", "instances", nil)
 		if err != nil {
@@ -140,7 +140,7 @@ func (c *APIClient) WaitForInstances(instancesLaunched InstanceLaunchData) (map[
 			}
 		}
 
-		if utils.All(myInstances, func(v InstanceDetails) bool { return v.Status == "active" && v.IP != "" }) {
+		if utils.All(myInstances, func(v Instance) bool { return v.Status == "active" && v.IP != "" }) {
 			return myInstances, nil
 		}
 
@@ -148,7 +148,7 @@ func (c *APIClient) WaitForInstances(instancesLaunched InstanceLaunchData) (map[
 	}
 }
 
-func (c *APIClient) ListInstances() ([]InstanceDetails, error) {
+func (c APIClient) ListInstances() ([]Instance, error) {
 	resp, err := c.MakeRequest("GET", "instances", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get instance details: %v", err)
@@ -193,4 +193,34 @@ func SelectBestInstanceOption(options []InstanceOption, requested InstanceOption
 	}
 
 	return bestOption, nil
+}
+
+func (c APIClient) ListFilesystems() ([]Filesystem, error) {
+	resp, err := c.MakeRequest("GET", "file-systems", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get filesystem details: %v", err)
+	}
+
+	var listResponse FilesystemListResponse
+	err = json.Unmarshal(resp, &listResponse)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal API response: %v", err)
+	}
+
+	return listResponse.FilesystemList, nil
+}
+
+func (c APIClient) ListSSHKeys() ([]SSHKey, error) {
+	resp, err := c.MakeRequest("GET", "ssh-keys", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ssh-key details: %v", err)
+	}
+
+	var listResponse SSHKeyListResponse
+	err = json.Unmarshal(resp, &listResponse)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal API response: %v", err)
+	}
+
+	return listResponse.SSHKeyList, nil
 }

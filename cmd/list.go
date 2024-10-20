@@ -17,7 +17,7 @@ var listCmd = &cobra.Command{
 }
 
 func listFunc(cmd *cobra.Command, args []string) {
-	client := api.NewAPIClient(viper.GetString("apiUrl"), viper.GetString("apiKey"))
+	client := api.NewAPIClient(viper.GetString("api-url"), viper.GetString("api-key"))
 
 	instances, err := client.ListInstances()
 	if err != nil {

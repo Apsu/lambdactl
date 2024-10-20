@@ -33,24 +33,24 @@ type RKE2TemplateData struct {
 
 func init() {
 	rootCmd.AddCommand(deployCmd)
-	deployCmd.Flags().String("host", "", "Target host")
+	deployCmd.Flags().String("ip", "", "Target IP")
 	deployCmd.Flags().Int("port", 22, "SSH port")
 	deployCmd.Flags().String("user", "ubuntu", "SSH user")
 	deployCmd.Flags().Bool("root", false, "Switch to root for deployment")
 	deployCmd.Flags().String("role", "worker", "Node role")
 	deployCmd.Flags().String("version", "", "Deployment version")
-	deployCmd.MarkFlagRequired("host")
+	deployCmd.MarkFlagRequired("ip")
 }
 
 var deployCmd = &cobra.Command{
-	Use:   "deploy",
+	Use:   "deploy <kubernetes | slurm>",
 	Short: "Deploy to an instance",
 	Args:  cobra.ExactArgs(1), // deployment type
 	Run: func(cmd *cobra.Command, args []string) {
 		deploymentType := args[0] // e.g., 'kubernetes'
 
 		// Flags
-		host, _ := cmd.Flags().GetString("host")
+		ip, _ := cmd.Flags().GetString("ip")
 		port, _ := cmd.Flags().GetInt("port")
 		user, _ := cmd.Flags().GetString("user")
 		root, _ := cmd.Flags().GetBool("root")
@@ -64,7 +64,7 @@ var deployCmd = &cobra.Command{
 
 		// Create SSHTarget based on user input
 		target := sshlib.SSHTarget{
-			Host:    host,
+			Host:    ip,
 			KeyName: os.Getenv("SSH_KEY_NAME"), // You might load this from config (e.g., Viper)
 			Port:    port,
 			User:    user,
