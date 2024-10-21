@@ -2,13 +2,11 @@ package ui
 
 import (
 	"fmt"
-	"log"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	log.Println("Update: ", msg)
 	switch msg := msg.(type) {
 	case errMsg:
 		if msg.err != nil {
@@ -18,17 +16,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case clearErrMsg:
 		m.errorMsg = ""
+		return m, nil
 	case tea.WindowSizeMsg: // Called once on startup, then on SIGWINCH signals
 		m.width = msg.Width
 		m.height = msg.Height
 
 		// Adjust table height
-		// tableHeight := m.height - headerStyle.GetHeight() - footerStyle.GetHeight()
+		tableHeight := m.height - headerStyle.GetHeight() - footerStyle.GetHeight() - 6
 
-		// m.content.SetHeight(tableHeight)
-		// m.content.SetWidth(m.width)
-
+		m.content.SetWidth(m.width)
+		m.content.SetHeight(tableHeight)
+		m.updateColumns()
 		return m, nil
+	case tea.KeyMsg:
+		if m.detailsPanel {
+			switch msg.String() {
+			case "esc":
+				m.detailsPanel = false
+				return m, tea.ClearScreen
+			default:
+				return m, nil // Ignore other keypresses when modal is active
+			}
+		}
 	}
 
 	switch m.currentState {
@@ -46,11 +55,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateInstanceState(msg tea.Msg) (tea.Model, tea.Cmd) {
-	log.Println("UpdateInstanceState: ", msg)
 	switch msg := msg.(type) {
 	case instancesMsg:
 		m.instances = msg.instances
 		m.loadInstanceTable()
+		m.updateColumns()
 		return m, nil
 	case timerMsg:
 		return m, tea.Batch(m.refreshInstances(), m.startTimer(m.refreshInterval, timerMsg{}))
@@ -59,11 +68,11 @@ func (m *Model) updateInstanceState(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "enter":
-			m.cursor = m.content.Cursor()
 			m.detailsPanel = true
-			return m, nil
+			// return m, nil
 		case "tab":
 			m.currentState = optionState
+			m.content.SetCursor(0)
 			return m, m.refreshOptions()
 		case "e":
 			return m, tea.Cmd(
@@ -80,24 +89,22 @@ func (m *Model) updateInstanceState(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateOptionState(msg tea.Msg) (tea.Model, tea.Cmd) {
-	log.Println("UpdateOptionState: ", msg)
 	switch msg := msg.(type) {
 	case optionsMsg:
 		m.options = msg.options
 		m.loadOptionTable()
 		return m, nil
+	case timerMsg:
+		return m, tea.Batch(m.refreshOptions(), m.startTimer(m.refreshInterval, timerMsg{}))
 	case tea.KeyMsg:
 		switch keypress := msg.String(); keypress {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "tab":
-			m.currentState = instanceState
-			return m, tea.Batch(
-				m.refreshInstances(),
-				m.startTimer(m.refreshInterval, timerMsg{}),
-			)
+			m.currentState = filesystemState
+			m.content.SetCursor(0)
+			return m, m.refreshFilesystems()
 		case "enter":
-			m.cursor = m.content.Cursor()
 			m.detailsPanel = true
 		case "r", "ctrl+l":
 			return m, m.refreshOptions()
@@ -110,21 +117,22 @@ func (m *Model) updateOptionState(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateFilesystemState(msg tea.Msg) (tea.Model, tea.Cmd) {
-	log.Println("UpdateFilesystemState: ", msg)
 	switch msg := msg.(type) {
 	case filesystemsMsg:
 		m.filesystems = msg.filesystems
 		m.loadFilesystemTable()
 		return m, nil
+	case timerMsg:
+		return m, tea.Batch(m.refreshFilesystems(), m.startTimer(m.refreshInterval, timerMsg{}))
 	case tea.KeyMsg:
 		switch keypress := msg.String(); keypress {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "tab":
 			m.currentState = sshState
-			return m, nil
+			m.content.SetCursor(0)
+			return m, m.refreshSSHKeys()
 		case "enter":
-			m.cursor = m.content.Cursor()
 			m.detailsPanel = true
 		}
 	}
@@ -135,21 +143,22 @@ func (m *Model) updateFilesystemState(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateSSHState(msg tea.Msg) (tea.Model, tea.Cmd) {
-	log.Println("UpdateSSHState: ", msg)
 	switch msg := msg.(type) {
 	case sshKeysMsg:
 		m.sshKeys = msg.sshKeys
 		m.loadSSHTable()
 		return m, nil
+	case timerMsg:
+		return m, tea.Batch(m.refreshSSHKeys(), m.startTimer(m.refreshInterval, timerMsg{}))
 	case tea.KeyMsg:
 		switch keypress := msg.String(); keypress {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "tab":
 			m.currentState = instanceState
-			return m, nil
+			m.content.SetCursor(0)
+			return m, m.refreshInstances()
 		case "enter":
-			m.cursor = m.content.Cursor()
 			m.detailsPanel = true
 		}
 	}

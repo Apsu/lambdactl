@@ -162,7 +162,7 @@ func deployKubernetes(c *sshlib.SSHClient, s *sshlib.SFTPClient, publicIP string
 	case "worker":
 		rke2Role = "agent"
 	default:
-		return fmt.Errorf("Invalid node role specified: %v", nodeRole)
+		return fmt.Errorf("invalid node role specified: %v", nodeRole)
 	}
 
 	// Step 1: Download and install RKE2 installer

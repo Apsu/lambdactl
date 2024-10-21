@@ -28,6 +28,8 @@ const (
 	draculaHighlight   = "#ff79c6" // Pink background for selections
 )
 
+var ()
+
 var (
 	headerStyle = lg.NewStyle().
 			Border(lg.RoundedBorder()).
@@ -75,16 +77,14 @@ type Model struct {
 	filesystems []api.Filesystem
 	sshKeys     []api.SSHKey
 
-	cursor int
-
 	currentState AppState
 	errorMsg     string
 	filter       string
 
-	header  string
-	content table.Model
+	header       string
+	content      table.Model
 	detailsPanel bool
-	footer  string
+	footer       string
 
 	launchForm *huh.Form
 

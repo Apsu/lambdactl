@@ -2,14 +2,13 @@ package ui
 
 import (
 	"fmt"
-	"log"
-	"os"
 	"time"
 
 	"lambdactl/pkg/api"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/table"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/viper"
 )
 
@@ -19,8 +18,23 @@ func NewModel() *Model {
 		viper.GetString("api-key"),
 	)
 
+	styles := table.Styles{
+		Header: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(draculaHeaderColor)).
+			Background(lipgloss.Color(draculaBackground)).
+			Padding(0, 1),
+		Cell: lipgloss.NewStyle().
+			Padding(0, 1),
+		Selected: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(draculaSelection)).
+			Background(lipgloss.Color(draculaHighlight)),
+	}
+
 	contentTable := table.New(
 		table.WithFocused(true),
+		table.WithStyles(styles),
 	)
 
 	m := &Model{
@@ -44,16 +58,6 @@ func (m *Model) Init() tea.Cmd {
 }
 
 func Start() error {
-	// Create a log file
-	if f, err := os.OpenFile("debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666); err != nil {
-		log.Fatal(err)
-	} else {
-		defer f.Close()
-
-		// Set log output to the file
-		log.SetOutput(f)
-	}
-
 	program := tea.NewProgram(
 		NewModel(),
 		tea.WithAltScreen(),

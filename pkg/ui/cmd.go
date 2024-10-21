@@ -6,7 +6,7 @@ package ui
 
 // func (m *Model) launchCmd() tea.Cmd {
 // 	return func() tea.Msg {
-// 		_, err := m.client.LaunchInstances(m.selectedOption, 1)
+// 		_, err := m.client.LaunchInstances(m.selected, 1)
 // 		if err != nil {
 // 			return errMsg{err}
 // 		}
