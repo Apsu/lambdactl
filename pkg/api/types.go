@@ -1,6 +1,6 @@
 package api
 
-import "time"
+// import "time"
 
 type InstanceSpecs struct {
 	GPUs       int `json:"gpus" yaml:"GPUs"`
@@ -69,8 +69,9 @@ type CreationData struct {
 }
 
 type Filesystem struct {
-	BytesUsed  int          `json:"bytes_used"`
-	Created    time.Time    `json:"created"`
+	BytesUsed int `json:"bytes_used"`
+	// Created    time.Time    `json:"created"`
+	Created    string       `json:"created"`
 	CreatedBy  CreationData `json:"created_by"`
 	ID         string       `json:"id"`
 	IsInUse    bool         `json:"is_in_use"`
